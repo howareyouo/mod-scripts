@@ -37,14 +37,30 @@ def disable_checksums(build_dir):
         print("Checksums removed.")
         return False
 
+def remove_locale_paks(base_dir):
+    """Delete all .pak files under <base_dir>/110a328ea5/locales except en-US.pak."""
+    locales_dir = Path(base_dir) / "locales"
+    if not locales_dir.is_dir():
+        print(f"Locales dir not found, skipping: {locales_dir}")
+        return
+    for pak in locales_dir.glob("*.pak"):
+        if pak.name == "en-US.pak":
+            continue
+        pak.unlink()
+        print(f"Removed locale pak: {pak.name}")
+    print("Locale paks cleaned.")
+
 def apply_patches(base_dir):
     if disable_checksums(base_dir):
         return
     basename = f"{base_dir}/resources/app/out/vs/workbench/workbench.desktop.main"
     batfile = f"{base_dir}/resources/app/extensions/bat/language-configuration.json"
-    css_patterns = [(r"Segoe WPC", "'Museo Sans 500'"),
-                    (r".issue-reporter-body .\w+:lang.*?\}", ""),
-                    (r".(windows|mac|linux)+:lang.*?\}", "")]
+    css_patterns = [
+        (r"Segoe WPC", "'Museo Sans 500'"),
+        (r".issue-reporter-body .\w+:lang.*?\}", ""),
+        (r".(windows|mac|linux)+:lang.*?\}", ""),
+        (".titlebar-center{order:1;width:60%;", ".titlebar-center{order:1;width:30%;"),
+    ]
     js_patterns = [(r"Segoe WPC", "Museo Sans 500"),
                    (r":host-context\(.\w+:lang.*\}\n", "")]
     print("Patching...")
@@ -54,6 +70,7 @@ def apply_patches(base_dir):
     print("JS: OK")
     modify_file(batfile, [(r'"lineComment":"@REM"', '"lineComment":"::"')])
     print("BAT: OK")
+    remove_locale_paks(base_dir)
 
 def get_editor_choice():
     editors = [

@@ -1,16 +1,26 @@
-import os, shutil, math, datetime, hashlib
+import os, sys, shutil, hashlib, argparse
 from collections import defaultdict
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 from pathlib import Path
-from site import PREFIXES
 import tkinter as tk
 
 CURRENT_PATH = Path(__file__)
 CURRENT_DIR = CURRENT_PATH.parent
-TEXTURES_DIR = r"E:\RE4 Mods\Mods Resources\_\\"
+TEXTURES_DIR = "E:/RE4 Mods/Mods Resources/_/"
 HIDE_ATOC = TEXTURES_DIR + "hide_ATOC.tex.143221013"
 SHOW_ATOC = TEXTURES_DIR + "show_ATOC.tex.143221013"
 PUBS_SHOW = TEXTURES_DIR + "pubs_SHOW.tex.143221013"
+SUFFIXES = (
+    "_atos.tex",
+    "_atoc.tex",
+    "_atoc2.tex",
+)
+INGAME_DIR = r"E:\RE4 Mods\InGame\Ada Evil Nurse Style B"
+SWITCH = True  # 是否进行替换, 为否时只打印替换信息
+# 默认源文件列表, 可用于拖放或命令行未提供时
+DEFAULT_SOURCE_FILES = [
+    r"E:\RE4 Mods\InGame\Ada Evil Nurse Style B\Ada Evil Nurse Style B\natives\stm\_chainsaw\character\ch\cha2\cha200\00\cha200_00_panty_atoc.tex.143221013"
+]
 
 def show_message(title, message):
     root = tk.Tk()
@@ -42,68 +52,9 @@ def format_filesize(filepath):
         size_bytes /= 1024
     return f"{size_bytes:.2f} TB"
 
-def find_duplicate_files(directory='.'):
-    """
-    查找指定目录中的重复文件
-    Args:
-        directory: 要搜索的目录路径，默认为当前目录
-    Returns:
-        字典，键为文件哈希值，值为具有相同哈希值的文件路径列表
-    """
-    # 第一步：按文件大小分组（快速筛选）
-    size_groups = defaultdict(list)
-    
-    print("正在扫描文件...")
-    for root, dirs, files in os.walk(directory):
-        # 跳过隐藏目录和常见不需要搜索的目录
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        
-        for filename in files:
-            # 跳过隐藏文件
-            if filename.startswith('.'): 
-                continue
-                
-            filepath = os.path.join(root, filename)
-            
-            # 确保是文件而不是符号链接等
-            if not os.path.isfile(filepath):
-                continue
-            
-            try:
-                file_size = os.path.getsize(filepath)
-                # 只关注大小大于0的文件，且至少有两个文件才有意义
-                if file_size > 0:
-                    size_groups[file_size].append(filepath)
-            except (OSError, PermissionError) as e:
-                print(f"警告: 无法访问文件 {filepath}: {e}")
-    
-    # 第二步：对大小相同的文件计算哈希值
-    print("正在比较文件内容...")
-    hash_groups = defaultdict(list)
-    files_checked = 0
-    
-    for file_size, filepaths in size_groups.items():
-        # 只有当有多个文件具有相同大小时才需要进一步比较
-        if len(filepaths) < 2:
-            continue
-        
-        for filepath in filepaths:
-            try:
-                file_hash = get_file_hash(filepath)
-                hash_groups[file_hash].append(filepath)
-                files_checked += 1
-            except (OSError, PermissionError) as e:
-                print(f"警告: 无法读取文件 {filepath}: {e}")
-    
-    # 第三步：过滤出真正的重复文件（至少2个文件有相同哈希）
-    duplicates = {
-        hash_val: paths 
-        for hash_val, paths in hash_groups.items() 
-        if len(paths) >= 2
-    }
-    return duplicates, files_checked
-
-def replace_matching_files(directory, hashes):
+def replace_matching_files(directory=INGAME_DIR, hashes=None):
+    if hashes is None:
+        hashes = []
     matches = []
     for root, dirs, files in os.walk(directory, topdown=True):
         for name in files:
@@ -118,30 +69,85 @@ def replace_matching_files(directory, hashes):
                     os.makedirs(backup_dir, exist_ok=True)
                     backup_name = os.path.basename(filepath)
                     backup_path = os.path.join(backup_dir, backup_name)
-                    shutil.move(filepath, backup_path)
+                    if SWITCH:
+                        shutil.move(filepath, backup_path)
+                        shutil.copy2(HIDE_ATOC, filepath)
+                        print(f"replace {shorten_path(filename):<60} size: {file_size}")
+                    else:
+                        print(f"preview {shorten_path(filename):<60} size: {file_size}")
                 except (OSError, PermissionError) as e:
-                    print(f"警告: 无法创建或移动到备份文件夹 {backup_dir}: {e}")
+                    print(f"Warning: Unable to create or move to backup folder {backup_dir}: {e}")
 
                 matches.append(filename)
-                print(f"replace {shorten_path(filename):<60} size: {file_size}")
-                shutil.copy2(HIDE_ATOC, filepath)
     return matches
 
-# 0b1a9bf24a65991f69ffdcf5a2132c0be40f0b392f505d93dbbee01c46a6166c
+def get_hashes_from_files(filepaths):
+    """Calculate hashes from a list of file paths."""
+    hashes = []
+    for filepath in filepaths:
+        if os.path.isfile(filepath):
+            try:
+                file_hash = get_file_hash(filepath)
+                hashes.append(file_hash)
+                print(f"Computed hash for {filepath}: {file_hash}")
+            except Exception as e:
+                print(f"Error computing hash for {filepath}: {e}")
+        else:
+            print(f"File not found: {filepath}")
+    return hashes
 
-SUFFIXES = (
-    "_atos.tex",
-    "_atoc.tex",
-    "_atoc2.tex",
-)
-HASHES = [
-    "42fe606c2614d8ba592343786e1f70fcee07284116718ce0bb1a82041eb3b3c4",
-    "e0051d8618fb55516d754875729eb4c2e1aef4f8a6ac8bdadfb259163104a938",
-]
-
-INGAME_DIR = r"E:\RE4 Mods\Ada 1"
-SWITCH = True # 是否进行替换, 为否时只打印替换信息
+def select_source_files():
+    """Open a file dialog to select source files."""
+    root = tk.Tk()
+    root.withdraw()
+    files = filedialog.askopenfilenames(
+        title="Select source texture files",
+        filetypes=[("Texture files", "*.tex.143221013"), ("All files", "*.*")]
+    )
+    root.destroy()
+    return list(files)
 
 if __name__ == "__main__":
-    matches = replace_matching_files(INGAME_DIR, HASHES)
+    parser = argparse.ArgumentParser(description="Replace ATOC/ATOS textures using hashes from source files.")
+    parser.add_argument(
+        "-s", "--sources",
+        nargs="+",
+        default=[],
+        help="One or more source file paths to compute hashes from. Supports drag-and-drop."
+    )
+    parser.add_argument(
+        "-d", "--directory",
+        default=INGAME_DIR,
+        help=f"Target directory to scan (default: {INGAME_DIR})"
+    )
+    parser.add_argument(
+        "-g", "--gui",
+        action="store_true",
+        help="Open a file dialog to select source files (overrides -s and DEFAULT_SOURCE_FILES)."
+    )
+    args = parser.parse_args()
+
+    # Determine source files: GUI dialog > command-line -s > drag-and-drop (sys.argv) > DEFAULT_SOURCE_FILES
+    if args.gui:
+        source_files = select_source_files()
+    elif args.sources:
+        source_files = args.sources
+    else:
+        # Attempt to read from sys.argv (drag-and-drop on Windows passes full paths)
+        argv_files = [arg for arg in sys.argv[1:] if not arg.startswith('-') and os.path.isfile(arg)]
+        if argv_files:
+            source_files = argv_files
+        elif DEFAULT_SOURCE_FILES:
+            source_files = DEFAULT_SOURCE_FILES
+            print("Using DEFAULT_SOURCE_FILES from script configuration.")
+        else:
+            parser.error("No source files provided. Use -s to specify source files, -g for file dialog, or drag-and-drop files onto the script.")
+
+    hashes = get_hashes_from_files(source_files)
+
+    if not hashes:
+        print("No valid hashes computed. Exiting.")
+        sys.exit(1)
+
+    matches = replace_matching_files(args.directory, hashes)
     print(f"Done, {len(matches)} textures replaced")
