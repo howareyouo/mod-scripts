@@ -4,6 +4,7 @@ from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
 from pathlib import Path
 import tkinter as tk
+import tkinter.font
 
 CURRENT_PATH = Path(__file__)
 CURRENT_DIR = CURRENT_PATH.parent
@@ -76,6 +77,41 @@ class QueueWriter:
     def flush(self):
         pass
 
+# 暗色主题配色
+BG = "#1e1f22"          # 窗口/框架背景
+FG = "#e0e0e0"          # 正文文字
+ENTRY_BG = "#2a2c31"    # 输入框/日志背景
+BTN_BG = "#33363c"      # 按钮背景
+BTN_ACTIVE = "#44484f"  # 按钮按下/悬停背景
+SELECT_BG = "#3b5b8a"   # 文本选中高亮
+
+# 按控件类名 (winfo_class) 配置暗色样式, 未列出的控件保持默认
+DARK_STYLES = {
+    "Tk":          {"bg": BG},
+    "Frame":       {"bg": BG},
+    "Label":       {"bg": BG, "fg": FG},
+    "Button":      {"bg": BTN_BG, "fg": FG, "activebackground": BTN_ACTIVE, "activeforeground": FG,
+                    "relief": "flat", "bd": 0, "highlightthickness": 0},
+    "Entry":       {"bg": ENTRY_BG, "fg": FG, "insertbackground": FG, "relief": "flat",
+                    "highlightthickness": 1, "highlightbackground": BTN_BG, "highlightcolor": BTN_ACTIVE},
+    "Text":        {"bg": ENTRY_BG, "fg": FG, "insertbackground": FG, "relief": "flat", "bd": 0,
+                    "selectbackground": SELECT_BG, "selectforeground": FG},
+    "Checkbutton": {"bg": BG, "fg": FG, "activebackground": BG, "activeforeground": FG, "selectcolor": ENTRY_BG},
+    "Radiobutton": {"bg": BG, "fg": FG, "activebackground": BG, "activeforeground": FG, "selectcolor": ENTRY_BG},
+    "Scrollbar":   {"bg": BTN_BG, "troughcolor": BG, "activebackground": BTN_ACTIVE, "bd": 0},
+}
+
+def apply_dark_theme(widget):
+    """递归地给 widget 及其子控件应用暗色样式 (日志界面在运行时才创建, 需要再次调用)。"""
+    opts = DARK_STYLES.get(widget.winfo_class())
+    if opts:
+        try:
+            widget.configure(**opts)
+        except tk.TclError:
+            pass
+    for child in widget.winfo_children():
+        apply_dark_theme(child)
+
 def launch_gui():
     """Open a GUI window to collect settings, then run the replacement with live log output.
 
@@ -96,8 +132,14 @@ def launch_gui():
             pass
 
     root = tk.Tk()
+    root.withdraw()  # 先隐藏窗口, 避免在计算居中位置时闪现
     root.title("ATOC 替换工具")
     root.resizable(False, False)
+
+    # 统一字体: Tk 的 Text 控件默认使用等宽字体, 与其他控件的系统默认字体不一致
+    default_font = tk.font.nametofont("TkDefaultFont")
+    text_font = tk.font.Font(font=default_font)
+    root.option_add("*Text.font", text_font)
 
     frm = tk.Frame(root, padx=10, pady=10)
     frm.pack(fill="both", expand=True)
@@ -139,9 +181,30 @@ def launch_gui():
     tk.Entry(frm, textvariable=suffix_var, width=70).grid(row=7, column=0, columnspan=2, sticky="we", pady=(0, 8))
 
     switch_var = tk.BooleanVar(value=SWITCH)
-    tk.Checkbutton(frm, text="执行替换 (不勾选则仅预览)", variable=switch_var).grid(row=8, column=0, sticky="w")
 
-    def worker(sources, directory):
+    def toggle_source():
+        if switch_var.get():
+            source_frame.grid(row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        else:
+            source_frame.grid_forget()
+
+    tk.Checkbutton(frm, text="执行替换 (不勾选则仅预览)", variable=switch_var, command=toggle_source).grid(row=8, column=0, sticky="w")
+
+    source_var = tk.StringVar(value=HIDE_ATOC)
+    source_frame = tk.Frame(frm)
+    source_label = tk.Label(source_frame, text="替换源:")
+    source_label.pack(side="left")
+    rb_hide = tk.Radiobutton(source_frame, text="HIDE_ATOC", variable=source_var, value=HIDE_ATOC)
+    rb_show = tk.Radiobutton(source_frame, text="SHOW_ATOC", variable=source_var, value=SHOW_ATOC)
+    rb_pubs = tk.Radiobutton(source_frame, text="PUBS_SHOW", variable=source_var, value=PUBS_SHOW)
+    rb_hide.pack(side="left", padx=(10, 0))
+    rb_show.pack(side="left", padx=(10, 0))
+    rb_pubs.pack(side="left", padx=(10, 0))
+
+    if SWITCH:
+        toggle_source()
+
+    def worker(sources, directory, source):
         old = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = QueueWriter(log_queue)
         try:
@@ -151,7 +214,7 @@ def launch_gui():
                 print("未计算出任何有效哈希, 退出。")
                 return
             print(f"开始扫描目录: {directory}")
-            matches = replace_matching_files(directory, hashes)
+            matches = replace_matching_files(directory, hashes, source)
             print(f"完成, 共替换 {len(matches)} 个贴图")
         except Exception as e:
             print(f"发生错误: {e}")
@@ -199,6 +262,7 @@ def launch_gui():
         PREFIXES = parse_list_field(prefix_var.get())
         SUFFIXES = parse_list_field(suffix_var.get())
         SWITCH = switch_var.get()
+        SOURCE = source_var.get()
         started[0] = True
 
         # 切换到日志界面
@@ -215,12 +279,15 @@ def launch_gui():
         tk.Label(log_frame, textvariable=ui["status_var"], anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
         ui["close_btn"] = tk.Button(log_frame, text="关闭", command=root.destroy, state="disabled", width=12)
         ui["close_btn"].grid(row=1, column=1, sticky="e", pady=(5, 0))
+        apply_dark_theme(log_frame)
         root.protocol("WM_DELETE_WINDOW", on_close_while_running)
 
-        threading.Thread(target=worker, args=(sources, directory), daemon=True).start()
+        threading.Thread(target=worker, args=(sources, directory, SOURCE), daemon=True).start()
         root.after(100, poll_log)
 
-    tk.Button(frm, text="开始", command=on_start, width=12).grid(row=9, column=0, columnspan=2, pady=(10, 0))
+    tk.Button(frm, text="开始", command=on_start, width=12).grid(row=10, column=0, columnspan=2, pady=(10, 0))
+
+    apply_dark_theme(root)
 
     # 窗口居中: 先刷新几何信息, 再按屏幕尺寸计算偏移
     root.update_idletasks()
@@ -231,13 +298,14 @@ def launch_gui():
     pos_x = max((scr_w - win_w) // 2, 0)
     pos_y = max((scr_h - win_h) // 2, 0)
     root.geometry(f"+{pos_x}+{pos_y}")
+    root.deiconify()  # 计算好位置后再显示窗口
 
     root.lift()
     root.focus_force()
     root.mainloop()
     return True if started[0] else None
 
-def replace_matching_files(directory=INGAME_DIR, hashes=None):
+def replace_matching_files(directory=INGAME_DIR, hashes=None, source=HIDE_ATOC):
     if hashes is None:
         hashes = []
     matches = []
@@ -261,7 +329,7 @@ def replace_matching_files(directory=INGAME_DIR, hashes=None):
                     backup_path = os.path.join(backup_dir, backup_name)
                     if SWITCH:
                         shutil.move(filepath, backup_path)
-                        shutil.copy2(HIDE_ATOC, filepath)
+                        shutil.copy2(source, filepath)
                         print(f"replace {shorten_path(filename):<60} size: {file_size}")
                     else:
                         print(f"preview {shorten_path(filename):<60} size: {file_size}")
