@@ -1,4 +1,4 @@
-import os, sys, ctypes, shutil, hashlib, threading, queue
+import os, sys, ctypes, shutil, hashlib, threading, queue, json
 from collections import defaultdict
 from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
@@ -64,6 +64,44 @@ def parse_list_field(text):
     """Parse a comma-separated text field into a tuple of non-empty items."""
     items = [item.strip() for item in text.replace("，", ",").split(",")]
     return tuple(item for item in items if item)
+
+def clean_path_line(line):
+    """去掉复制路径时可能带上的首尾空白和双引号。"""
+    return line.strip().strip('"').strip()
+
+# 用户上次输入/选择的持久化文件 (与脚本同目录)
+CONFIG_FILE = CURRENT_DIR / "replace_atoc_config.json"
+
+def load_config():
+    """读取上次的 GUI 设置, 缺失或损坏时回退到脚本顶部的默认值。"""
+    defaults = {
+        "directory": INGAME_DIR,
+        "sources": list(DEFAULT_SOURCE_FILES),
+        "prefixes": ", ".join(PREFIXES),
+        "suffixes": ", ".join(SUFFIXES),
+        "switch": SWITCH,
+        "source": HIDE_ATOC,
+    }
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            saved = json.load(f)
+        for key in defaults:
+            if key in saved:
+                defaults[key] = saved[key]
+    except (OSError, ValueError):
+        pass
+    if isinstance(defaults["sources"], list):
+        defaults["sources"] = [clean_path_line(s) for s in defaults["sources"] if clean_path_line(s)]
+    if defaults["source"] not in (HIDE_ATOC, SHOW_ATOC, PUBS_SHOW):
+        defaults["source"] = HIDE_ATOC
+    return defaults
+
+def save_config(config):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
 
 class QueueWriter:
     """把工作线程里 print 的输出转发到队列, 由 GUI 轮询显示到日志区。"""
@@ -140,26 +178,37 @@ def launch_gui():
     default_font = tk.font.nametofont("TkDefaultFont")
     text_font = tk.font.Font(font=default_font)
     root.option_add("*Text.font", text_font)
+    # 日志区使用等宽字体, 保证路径/大小等列对齐
+    mono_font = tk.font.Font(family="Consolas", size=10)
 
     frm = tk.Frame(root, padx=10, pady=10)
     frm.pack(fill="both", expand=True)
     frm.columnconfigure(0, weight=1)
 
+    cfg = load_config()
+
     tk.Label(frm, text="游戏目录 (INGAME_DIR):").grid(row=0, column=0, sticky="w")
-    dir_var = tk.StringVar(value=INGAME_DIR)
+    dir_var = tk.StringVar(value=cfg["directory"])
 
     def browse_dir():
         chosen = filedialog.askdirectory(parent=root, initialdir=dir_var.get() or os.getcwd())
         if chosen:
             dir_var.set(os.path.normpath(chosen))
 
-    tk.Button(frm, text="浏览...", command=browse_dir).grid(row=0, column=1, padx=(5, 0), sticky="e")
-    tk.Entry(frm, textvariable=dir_var, width=70).grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 8))
+    dir_row = tk.Frame(frm)
+    dir_row.grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 8))
+    dir_entry = tk.Entry(dir_row, textvariable=dir_var, width=70)
+    browse_btn = tk.Button(dir_row, text="浏览...", command=browse_dir)
+    # 以两者中较高者的请求高度作为整行高度, 输入框/按钮都纵向填满, 高度完全一致
+    root.update_idletasks()
+    dir_row.configure(height=max(dir_entry.winfo_reqheight(), browse_btn.winfo_reqheight()))
+    dir_entry.pack(side="left", fill="y")
+    browse_btn.pack(side="left", padx=(5, 0), fill="both", expand=True)
 
     tk.Label(frm, text="源文件 (DEFAULT_SOURCE_FILES), 每行一个:").grid(row=2, column=0, sticky="w")
     files_text = tk.Text(frm, width=70, height=6)
     files_text.grid(row=3, column=0, sticky="we", pady=(0, 8))
-    for filepath in DEFAULT_SOURCE_FILES:
+    for filepath in cfg["sources"]:
         files_text.insert("end", filepath + "\n")
 
     def add_files():
@@ -173,14 +222,14 @@ def launch_gui():
     tk.Button(frm, text="添加文件...", command=add_files).grid(row=3, column=1, sticky="n", padx=(5, 0))
 
     tk.Label(frm, text="前缀 PREFIXES (逗号分隔, 留空则不过滤):").grid(row=4, column=0, sticky="w")
-    prefix_var = tk.StringVar(value=", ".join(PREFIXES))
+    prefix_var = tk.StringVar(value=cfg["prefixes"])
     tk.Entry(frm, textvariable=prefix_var, width=70).grid(row=5, column=0, columnspan=2, sticky="we", pady=(0, 8))
 
     tk.Label(frm, text="后缀 SUFFIXES (逗号分隔, 留空则不过滤):").grid(row=6, column=0, sticky="w")
-    suffix_var = tk.StringVar(value=", ".join(SUFFIXES))
+    suffix_var = tk.StringVar(value=cfg["suffixes"])
     tk.Entry(frm, textvariable=suffix_var, width=70).grid(row=7, column=0, columnspan=2, sticky="we", pady=(0, 8))
 
-    switch_var = tk.BooleanVar(value=SWITCH)
+    switch_var = tk.BooleanVar(value=cfg["switch"])
 
     def toggle_source():
         if switch_var.get():
@@ -190,7 +239,7 @@ def launch_gui():
 
     tk.Checkbutton(frm, text="执行替换 (不勾选则仅预览)", variable=switch_var, command=toggle_source).grid(row=8, column=0, sticky="w")
 
-    source_var = tk.StringVar(value=HIDE_ATOC)
+    source_var = tk.StringVar(value=cfg["source"])
     source_frame = tk.Frame(frm)
     source_label = tk.Label(source_frame, text="替换源:")
     source_label.pack(side="left")
@@ -201,8 +250,23 @@ def launch_gui():
     rb_show.pack(side="left", padx=(10, 0))
     rb_pubs.pack(side="left", padx=(10, 0))
 
-    if SWITCH:
+    if switch_var.get():
         toggle_source()
+
+    def save_current():
+        """把当前界面上的输入/选择写入配置文件。"""
+        save_config({
+            "directory": dir_var.get().strip(),
+            "sources": [clean_path_line(line) for line in files_text.get("1.0", "end").splitlines() if clean_path_line(line)],
+            "prefixes": prefix_var.get(),
+            "suffixes": suffix_var.get(),
+            "switch": switch_var.get(),
+            "source": source_var.get(),
+        })
+
+    def on_close():
+        save_current()
+        root.destroy()
 
     def worker(sources, directory, source):
         old = sys.stdout, sys.stderr
@@ -222,15 +286,23 @@ def launch_gui():
             sys.stdout, sys.stderr = old
             log_queue.put(None)  # 结束标记
 
+    def back_to_main():
+        """销毁日志界面, 返回主设置界面 (不退出程序)。"""
+        ui["log_frame"].destroy()
+        root.title("ATOC 替换工具")
+        root.resizable(False, False)
+        frm.pack(fill="both", expand=True)
+        root.protocol("WM_DELETE_WINDOW", on_close)
+
     def poll_log():
         try:
             while True:
                 item = log_queue.get_nowait()
                 if item is None:
                     running[0] = False
-                    ui["status_var"].set("完成, 可以关闭窗口。")
-                    root.protocol("WM_DELETE_WINDOW", root.destroy)
-                    ui["close_btn"].config(state="normal")
+                    ui["status_var"].set("完成, 点击关闭返回主界面。")
+                    root.protocol("WM_DELETE_WINDOW", back_to_main)
+                    ui["close_btn"].config(state="normal", command=back_to_main)
                     return
                 log_text = ui["log_text"]
                 log_text.insert("end", item if item.endswith("\n") else item + "\n")
@@ -248,7 +320,7 @@ def launch_gui():
         if not directory or not os.path.isdir(directory):
             messagebox.showerror("错误", f"游戏目录无效:\n{directory}", parent=root)
             return
-        sources = [line.strip() for line in files_text.get("1.0", "end").splitlines() if line.strip()]
+        sources = [clean_path_line(line) for line in files_text.get("1.0", "end").splitlines() if clean_path_line(line)]
         if not sources:
             messagebox.showerror("错误", "请至少填写一个源文件。", parent=root)
             return
@@ -264,6 +336,7 @@ def launch_gui():
         SWITCH = switch_var.get()
         SOURCE = source_var.get()
         started[0] = True
+        save_current()
 
         # 切换到日志界面
         root.title("ATOC 替换工具 - 运行中")
@@ -271,13 +344,14 @@ def launch_gui():
         frm.pack_forget()
         log_frame = tk.Frame(root, padx=10, pady=10)
         log_frame.pack(fill="both", expand=True)
+        ui["log_frame"] = log_frame
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        ui["log_text"] = ScrolledText(log_frame, width=90, height=25)
+        ui["log_text"] = ScrolledText(log_frame, width=90, height=25, font=mono_font)
         ui["log_text"].grid(row=0, column=0, columnspan=2, sticky="nsew")
         ui["status_var"] = tk.StringVar(value="正在运行...")
         tk.Label(log_frame, textvariable=ui["status_var"], anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
-        ui["close_btn"] = tk.Button(log_frame, text="关闭", command=root.destroy, state="disabled", width=12)
+        ui["close_btn"] = tk.Button(log_frame, text="关闭", command=back_to_main, state="disabled", width=12)
         ui["close_btn"].grid(row=1, column=1, sticky="e", pady=(5, 0))
         apply_dark_theme(log_frame)
         root.protocol("WM_DELETE_WINDOW", on_close_while_running)
@@ -285,9 +359,53 @@ def launch_gui():
         threading.Thread(target=worker, args=(sources, directory, SOURCE), daemon=True).start()
         root.after(100, poll_log)
 
-    tk.Button(frm, text="开始", command=on_start, width=12).grid(row=10, column=0, columnspan=2, pady=(10, 0))
+    def on_delete_backups():
+        """删除当前目录下所有 _backup 备份文件夹。"""
+        directory = dir_var.get().strip()
+        if not directory or not os.path.isdir(directory):
+            messagebox.showerror("错误", f"游戏目录无效:\n{directory}", parent=root)
+            return
+        backup_dirs = []
+        file_count = 0
+        for root_dir, dirs, files in os.walk(directory, topdown=True):
+            if "_backup" in dirs:
+                backup_dir = os.path.join(root_dir, "_backup")
+                file_count += sum(len(fs) for _, _, fs in os.walk(backup_dir))
+                backup_dirs.append(backup_dir)
+            # 不进入 _backup 内部继续遍历
+            dirs[:] = [d for d in dirs if d != "_backup"]
+        if not backup_dirs:
+            messagebox.showinfo("提示", "未找到任何 _backup 文件夹。", parent=root)
+            return
+        if not messagebox.askyesno(
+            "确认",
+            f"将删除 {len(backup_dirs)} 个 _backup 文件夹, 共 {file_count} 个文件。\n此操作不可恢复, 是否继续?",
+            parent=root,
+        ):
+            return
+        deleted = failed = 0
+        for backup_dir in backup_dirs:
+            try:
+                shutil.rmtree(backup_dir)
+                deleted += 1
+            except (OSError, PermissionError) as e:
+                failed += 1
+                print(f"删除失败: {backup_dir}: {e}")
+        if failed:
+            messagebox.showwarning("完成", f"成功删除 {deleted} 个 _backup 文件夹, {failed} 个删除失败。", parent=root)
+        else:
+            messagebox.showinfo("完成", f"已删除 {deleted} 个 _backup 文件夹。", parent=root)
+
+    btns = tk.Frame(frm)
+    btns.grid(row=10, column=0, columnspan=2, sticky="we", pady=(10, 0))
+    btns.columnconfigure(1, weight=1)  # 中间留空, 把右侧按钮推到最后
+    tk.Button(btns, text="开始", command=on_start, width=12).grid(row=0, column=0, sticky="w")
+    del_btn = tk.Button(btns, text="删除备份", command=on_delete_backups, width=12, fg="#ff6961")
+    del_btn.grid(row=0, column=2, sticky="e")
 
     apply_dark_theme(root)
+    # 暗色主题会覆盖按钮前景色, 最后再单独把删除备份设回柔和的红色
+    del_btn.config(fg="#ff6961", activeforeground="#ef8080")
 
     # 窗口居中: 先刷新几何信息, 再按屏幕尺寸计算偏移
     root.update_idletasks()
@@ -302,6 +420,7 @@ def launch_gui():
 
     root.lift()
     root.focus_force()
+    root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
     return True if started[0] else None
 
@@ -310,6 +429,8 @@ def replace_matching_files(directory=INGAME_DIR, hashes=None, source=HIDE_ATOC):
         hashes = []
     matches = []
     for root, dirs, files in os.walk(directory, topdown=True):
+        # 跳过备份目录, 避免把上次备份的文件再次替换掉
+        dirs[:] = [d for d in dirs if d != "_backup"]
         for name in files:
             filename, ext = os.path.splitext(name)
             if ext != ".143221013":
@@ -330,9 +451,9 @@ def replace_matching_files(directory=INGAME_DIR, hashes=None, source=HIDE_ATOC):
                     if SWITCH:
                         shutil.move(filepath, backup_path)
                         shutil.copy2(source, filepath)
-                        print(f"replace {shorten_path(filename):<60} size: {file_size}")
+                        print(f"replace {shorten_path(filename):<40} size: {file_size:>10}")
                     else:
-                        print(f"preview {shorten_path(filename):<60} size: {file_size}")
+                        print(f"preview {shorten_path(filename):<40} size: {file_size:>10}")
                 except (OSError, PermissionError) as e:
                     print(f"Warning: Unable to create or move to backup folder {backup_dir}: {e}")
 
