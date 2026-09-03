@@ -223,11 +223,11 @@ def launch_gui():
 
     tk.Label(frm, text="前缀 PREFIXES (逗号分隔, 留空则不过滤):").grid(row=4, column=0, sticky="w")
     prefix_var = tk.StringVar(value=cfg["prefixes"])
-    tk.Entry(frm, textvariable=prefix_var, width=70).grid(row=5, column=0, columnspan=2, sticky="we", pady=(0, 8))
+    tk.Entry(frm, textvariable=prefix_var, width=70).grid(row=5, column=0, columnspan=2, sticky="we", pady=(0, 8), ipady=3)
 
     tk.Label(frm, text="后缀 SUFFIXES (逗号分隔, 留空则不过滤):").grid(row=6, column=0, sticky="w")
     suffix_var = tk.StringVar(value=cfg["suffixes"])
-    tk.Entry(frm, textvariable=suffix_var, width=70).grid(row=7, column=0, columnspan=2, sticky="we", pady=(0, 8))
+    tk.Entry(frm, textvariable=suffix_var, width=70).grid(row=7, column=0, columnspan=2, sticky="we", pady=(0, 8), ipady=3)
 
     switch_var = tk.BooleanVar(value=cfg["switch"])
 
