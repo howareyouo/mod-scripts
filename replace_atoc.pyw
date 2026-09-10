@@ -408,9 +408,11 @@ def launch_gui():
     del_btn.config(fg="#ff6961", activeforeground="#ef8080")
 
     # 窗口居中: 先刷新几何信息, 再按屏幕尺寸计算偏移
+    # 窗口未映射时, winfo_width/height 会被第一次 update_idletasks 锁定成旧值,
+    # 因此用请求尺寸 winfo_req* 计算居中 (resizable=False, 实际尺寸即请求尺寸)
     root.update_idletasks()
-    win_w = root.winfo_width()
-    win_h = root.winfo_height()
+    win_w = root.winfo_reqwidth()
+    win_h = root.winfo_reqheight()
     scr_w = root.winfo_screenwidth()
     scr_h = root.winfo_screenheight()
     pos_x = max((scr_w - win_w) // 2, 0)
