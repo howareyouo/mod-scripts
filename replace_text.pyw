@@ -391,6 +391,11 @@ def run_replacements(target_dir=TARGET_DIR, extensions=EXTENSIONS, rules=REPLACE
             for regex, replacement in compiled:
                 text, n = regex.subn(replacement, text)
                 count += n
+            # 兜底: 某条规则把换行全部吃掉时 (pattern 匹配 \n 且替换为空), 整个文件会挤成一行。
+            # 原文件含换行而结果一个不剩时, 至少补回一个。
+            if "\n" in original and "\n" not in text:
+                print(f"警告: 替换后所有换行丢失, 已补回一个换行: {file_path}")
+                text += "\n"
             processed += 1
 
             if count == 0:

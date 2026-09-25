@@ -1,9 +1,9 @@
 {
-  "directory": "E:\\RE4 Mods\\InGame\\Ada Surprise Dress",
+  "directory": "E:\\Ada Franch Maid",
   "sources": [
-    "E:\\RE4 Mods\\InGame\\Ada Surprise Dress\\Pubic Medium\\natives\\stm\\_chainsaw\\character\\ch\\cha2\\cha200\\00\\cha101_00_pub1_ATOC.tex.143221013"
+    "E:\\RE4 Mods\\InGame\\Ada Yan Outfit\\Vests\\Vest  -  A01\\natives\\stm\\_chainsaw\\character\\ch\\cha2\\cha200\\00\\cha200_00_vest_atoc.tex_.143221013"
   ],
-  "prefixes": "Remov_",
+  "prefixes": "",
   "suffixes": "_atos.tex, _atoc.tex, _atoc2.tex",
   "switch": false,
   "source": "E:/RE4 Mods/Mods Resources/_/show_ATOC.tex.143221013"

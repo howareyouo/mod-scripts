@@ -59,7 +59,7 @@ def apply_patches(base_dir):
         (r"Segoe WPC", "'Museo Sans 500'"),
         (r".issue-reporter-body .\w+:lang.*?\}", ""),
         (r".(windows|mac|linux)+:lang.*?\}", ""),
-        (".titlebar-center{order:1;width:60%;", ".titlebar-center{order:1;width:30%;"),
+        (".titlebar-center{order:1;width:60%;", ".titlebar-center{order:1;width:25%;"),
     ]
     js_patterns = [(r"Segoe WPC", "Museo Sans 500"),
                    (r":host-context\(.\w+:lang.*\}\n", "")]
