@@ -15,24 +15,26 @@
   <textarea id="roots" spellcheck="false" placeholder="E:\Dedup\Ada Side Slit Cheongsam&#10;E:\Dedup\Ada Side Slit Cheongsam_"></textarea>
   <div class="row">
     <button id="btn-browse" hidden>选择目录…</button>
-    <label>线程数 <select id="jobs">__JOBS_OPTIONS__</select></label>
+    <label>线程数 <select id="jobs"></select></label>
+    <span class="hint sub">机械硬盘建议把线程数调到 2；SSD 默认即可。</span>
     <span class="grow"></span>
     <button id="btn-scan" class="primary">开始扫描</button>
     <button id="btn-cancel" disabled>取消</button>
   </div>
-  <p class="hint" style="margin-top:8px">机械硬盘建议把线程数调到 2；SSD 默认即可。判定重复必须内容完全一致，不会只看路径和大小。</p>
 </div>
 
-<div class="panel" id="progress-panel" hidden>
-  <div class="phase" id="phase">准备中</div>
-  <div class="bar"><div id="bar"></div></div>
-  <div class="kv">
-    <div>已扫描 mod：<b id="p-mods">0 / 0</b></div>
-    <div>本阶段文件：<b id="p-files">0 / 0</b></div>
-    <div>已读字节：<b id="p-bytes">0 B</b></div>
-    <div>耗时：<b id="p-elapsed">0.0s</b></div>
+<div class="panel" id="summary-panel" hidden>
+  <div id="progress-body">
+    <div class="phase" id="phase">准备中</div>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="kv">
+      <div>已扫描 mod：<b id="p-mods">0 / 0</b></div>
+      <div>本阶段文件：<b id="p-files">0 / 0</b></div>
+      <div>已读字节：<b id="p-bytes">0 B</b></div>
+      <div>耗时：<b id="p-elapsed">0.0s</b></div>
+    </div>
   </div>
-  <div class="path" id="p-current" style="margin-top:10px"></div>
+  <div id="result-summary" hidden></div>
 </div>
 
 <div id="banners"></div>

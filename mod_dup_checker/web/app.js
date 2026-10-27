@@ -1,9 +1,45 @@
 (function () {
   "use strict";
 
-  var state = { job: null, timer: null, result: null, busy: false, browseOk: false };
+  var state = {
+    job: null,          // 当前扫描任务 id
+    timer: null,        // 轮询定时器
+    result: null,       // 最近一次 /api/result
+    keepByGroup: Object.create(null),  // 组 id -> 要保留的路径
+    deleted: Object.create(null),      // 已删掉的路径
+    rows: Object.create(null),         // 路径 -> 对应的 DOM 行
+    busy: false,
+    deleting: false
+  };
+
+  var ROOTS_KEY = "mod-dup-checker.roots";
+  var DEFAULT_TIMEOUT = 15000;   // 普通接口的超时（毫秒）
+  var BROWSE_TIMEOUT = 620000;   // 选择目录窗口：用户可能开着窗口走开一会儿
 
   function $(id) { return document.getElementById(id); }
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  // 输入框内容存进 localStorage：关掉页面再打开还能接着用上次填的目录。
+  function loadRoots() {
+    try {
+      var saved = window.localStorage.getItem(ROOTS_KEY);
+      if (saved) $("roots").value = saved;
+    } catch (e) { /* 隐私模式或被禁用时忽略 */ }
+  }
+
+  function saveRoots() {
+    try {
+      var text = $("roots").value;
+      if (text) window.localStorage.setItem(ROOTS_KEY, text);
+      else window.localStorage.removeItem(ROOTS_KEY);
+    } catch (e) { /* 同上 */ }
+  }
 
   function fmtBytes(n) {
     n = Number(n) || 0;
@@ -16,8 +52,24 @@
 
   function fmtSec(ms) { return (ms / 1000).toFixed(1) + "s"; }
 
-  function api(path, options) {
-    return fetch(path, options).then(function (r) {
+  // 所有请求都带超时：服务端卡住时页面不能无限转圈
+  function api(path, options, timeoutMs) {
+    var opts = {};
+    if (options) {
+      for (var k in options) {
+        if (Object.prototype.hasOwnProperty.call(options, k)) opts[k] = options[k];
+      }
+    }
+    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = null;
+    if (ctrl) {
+      opts.signal = ctrl.signal;
+      timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || DEFAULT_TIMEOUT);
+    }
+    function stop() {
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+    return fetch(path, opts).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (body) {
         if (!r.ok) {
           var msg = (body && body.error) || ("请求失败（HTTP " + r.status + "）");
@@ -25,22 +77,26 @@
         }
         return body;
       });
+    }).then(function (body) {
+      stop();
+      return body;
+    }, function (err) {
+      stop();
+      if (err && err.name === "AbortError") throw new Error("请求超时：" + path);
+      throw err;
     });
   }
 
-  function postJSON(path, data) {
+  function postJSON(path, data, timeoutMs) {
     return api(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data || {})
-    });
+    }, timeoutMs);
   }
 
   function banner(text, kind) {
-    var el = document.createElement("div");
-    el.className = "notice" + (kind === "err" ? " err" : "");
-    el.textContent = text;
-    return el;
+    return el("div", "notice" + (kind === "err" ? " err" : ""), text);
   }
 
   function clearBanners() { $("banners").textContent = ""; }
@@ -48,6 +104,28 @@
   function showError(text) {
     clearBanners();
     $("banners").appendChild(banner(text, "err"));
+  }
+
+  // 线程数下拉框由服务端的能力声明决定，不在 HTML 里写死
+  var JOBS_CHOICES = [1, 2, 4, 6, 8, 12, 16, 24, 32];
+
+  function fillJobs(defaultJobs) {
+    var sel = $("jobs");
+    var def = parseInt(defaultJobs, 10);
+    if (!(def > 0)) def = 8;
+    var choices = JOBS_CHOICES.slice();
+    if (choices.indexOf(def) < 0) {
+      choices.push(def);
+      choices.sort(function (a, b) { return a - b; });
+    }
+    sel.textContent = "";
+    choices.forEach(function (n) {
+      var opt = document.createElement("option");
+      opt.value = String(n);
+      opt.textContent = String(n);
+      sel.appendChild(opt);
+    });
+    sel.value = String(def);
   }
 
   // ---- 扫描控制 --------------------------------------------------------
@@ -59,6 +137,7 @@
 
   function startScan() {
     if (state.busy) return;
+    saveRoots();
     var roots = collectRoots();
     if (!roots.length) { showError("请输入至少一个 mod 集合目录（一行一个）。"); return; }
     clearBanners();
@@ -71,7 +150,9 @@
     $("empty-wrap").textContent = "";
     $("warn-wrap").textContent = "";
     $("foot-hint").textContent = "扫描中…";
-    $("progress-panel").hidden = false;
+    $("summary-panel").hidden = false;
+    $("progress-body").hidden = false;
+    $("result-summary").hidden = true;
     $("btn-cancel").disabled = false;
 
     postJSON("/api/scan", {
@@ -126,7 +207,6 @@
     $("p-files").textContent = (s.files_done || 0) + " / " + (s.files_total || 0);
     $("p-bytes").textContent = fmtBytes(s.bytes_read);
     $("p-elapsed").textContent = fmtSec(s.elapsed_ms || 0);
-    $("p-current").textContent = s.current_path || "";
   }
 
   function finish(status) {
@@ -155,20 +235,24 @@
     var wrap = $("results");
     wrap.textContent = "";
     var stats = res.stats || {};
+    state.keepByGroup = Object.create(null);
+    state.deleted = Object.create(null);
+    state.rows = Object.create(null);
 
     var anySuspect = (res.groups || []).some(function (g) { return g.kind === "structure"; });
     if (anySuspect) {
       $("banners").appendChild(banner("结果包含「疑似重复」组：这些组只通过了结构 + 采样校验，内容未经全量校验。"));
     }
 
-    var summary = document.createElement("div");
-    summary.className = "panel";
-    var line = document.createElement("div");
-    line.className = "phase";
-    line.textContent = "共 " + stats.mods + " 个 mod · " + (res.groups || []).length + " 组重复 · 可回收 " + fmtBytes(stats.reclaimable_bytes);
-    summary.appendChild(line);
-    var kv = document.createElement("div");
-    kv.className = "kv";
+    var summary = $("result-summary");
+    summary.textContent = "";
+    $("summary-panel").hidden = false;
+    $("progress-body").hidden = true;
+    summary.hidden = false;
+    summary.appendChild(el("div", "phase",
+      "共 " + stats.mods + " 个 mod · " + (res.groups || []).length + " 组重复 · 可回收 " + fmtBytes(stats.reclaimable_bytes)));
+
+    var kv = el("div", "kv");
     [
       ["natives 文件数", String(stats.files || 0)],
       ["natives 总字节", fmtBytes(stats.bytes)],
@@ -177,50 +261,45 @@
       ["空 mod（无 natives 文件）", String(stats.empty || 0)],
       ["耗时", fmtSec(stats.elapsed_ms || 0)]
     ].forEach(function (pair) {
-      var d = document.createElement("div");
-      d.textContent = pair[0] + "：";
-      var b = document.createElement("b");
-      b.textContent = pair[1];
-      d.appendChild(b);
+      var d = el("div", null, pair[0] + "：");
+      d.appendChild(el("b", null, pair[1]));
       kv.appendChild(d);
     });
     summary.appendChild(kv);
-    var note = document.createElement("p");
-    note.className = "hint";
-    note.style.marginTop = "12px";
-    note.textContent = "「文件数 / 大小 / 可回收空间」只统计 natives/ 下的文件；modinfo.ini、截图等不参与比较。组内默认保留第一个，其余仅标记为可删除候选，本工具不会删除任何文件。";
-    summary.appendChild(note);
-    wrap.appendChild(summary);
+
+    var actions = el("div", "row");
+    var delAll = el("button", "danger");
+    delAll.id = "btn-delete-all";
+    delAll.onclick = deleteAllDupes;
+    actions.appendChild(delAll);
+    var delHint = el("span", "hint");
+    delHint.id = "delete-all-hint";
+    actions.appendChild(delHint);
+    summary.appendChild(actions);
+
+    if (!(res.groups || []).length) {
+      summary.appendChild(el("div", "empty", stats.mods
+        ? "没有发现重复的 mod。"
+        : "没有找到任何 mod：请确认目录下存在「自身含 natives 子目录」的 mod。"));
+    }
 
     (res.groups || []).forEach(function (g) { wrap.appendChild(renderGroup(g)); });
 
-    if (!(res.groups || []).length) {
-      var empty = document.createElement("div");
-      empty.className = "panel empty";
-      empty.textContent = (stats.mods ? "没有发现重复的 mod。" : "没有找到任何 mod：请确认目录下存在「自身含 natives 子目录」的 mod。");
-      wrap.appendChild(empty);
-    }
-
     renderEmptyMods(res.empty_mods || []);
     renderWarnings(res.warnings || []);
+    refreshDeleteAll();
   }
 
   function renderGroup(g) {
-    var box = document.createElement("div");
-    box.className = "group";
+    var box = el("div", "group");
+    box.setAttribute("data-group", String(g.id));
+    box.setAttribute("data-kind", g.kind || "content");
 
-    var head = document.createElement("div");
-    head.className = "group-head";
-    var no = document.createElement("span");
-    no.className = "group-no";
-    no.textContent = "组 " + g.id;
-    head.appendChild(no);
+    var head = el("div", "group-head");
+    head.appendChild(el("span", "group-no", "组 " + g.id));
 
     function tag(text, cls) {
-      var s = document.createElement("span");
-      s.className = "tag" + (cls ? " " + cls : "");
-      s.textContent = text;
-      head.appendChild(s);
+      head.appendChild(el("span", "tag" + (cls ? " " + cls : ""), text));
     }
     tag(g.count + " 个成员");
     tag("单个 " + fmtBytes(g.member_bytes));
@@ -229,51 +308,35 @@
     if (g.kind === "structure") tag("疑似重复（未全量校验）");
     box.appendChild(head);
 
+    // 默认保留第一个成员（扫描目录顺序靠前、目录层级最浅的那份）
+    state.keepByGroup[g.id] = g.members.length ? g.members[0].path : "";
     g.members.forEach(function (m, i) {
-      box.appendChild(renderMember(g, m, i));
+      box.appendChild(renderMember(g, box, m, i));
     });
     return box;
   }
 
-  function renderMember(g, m, index) {
-    var row = document.createElement("div");
-    row.className = "member" + (index === 0 ? " keep" : "");
+  function renderMember(g, box, m, index) {
+    var row = el("div", "member" + (index === 0 ? " keep" : ""));
+    row.setAttribute("data-path", m.path);
+    state.rows[m.path] = row;
 
     var radio = document.createElement("input");
     radio.type = "radio";
     radio.name = "keep-" + g.id;
     radio.checked = index === 0;
-    radio.title = "选为要保留的那一份";
+    radio.title = "选为要保留的那一份（默认选中：扫描目录顺序靠前、目录层级最浅的那份）";
     row.appendChild(radio);
 
-    var badge = document.createElement("span");
-    badge.className = "badge " + (index === 0 ? "keep" : "del");
-    badge.textContent = index === 0 ? "保留" : "可删除候选";
-    row.appendChild(badge);
+    row.appendChild(el("span", "badge " + (index === 0 ? "keep" : "del"), index === 0 ? "保留" : "删除"));
 
-    var mid = document.createElement("div");
+    var mid = el("div");
     mid.style.flex = "1";
-    var p = document.createElement("div");
-    p.className = "path";
-    p.textContent = m.path;
-    mid.appendChild(p);
-    var meta = document.createElement("div");
-    meta.className = "meta";
-    meta.textContent = m.mod_name + " · " + m.files + " 个文件 · " + fmtBytes(m.bytes);
-    mid.appendChild(meta);
+    mid.appendChild(el("div", "path", m.path));
+    mid.appendChild(el("div", "meta", m.mod_name + " · " + m.files + " 个文件 · " + fmtBytes(m.bytes)));
     row.appendChild(mid);
 
-    var copy = document.createElement("button");
-    copy.className = "small";
-    copy.textContent = "复制路径";
-    copy.onclick = function () {
-      copyText(m.path, copy);
-    };
-    row.appendChild(copy);
-
-    var open = document.createElement("button");
-    open.className = "small";
-    open.textContent = "在资源管理器打开";
+    var open = el("button", "small", "在资源管理器打开");
     open.onclick = function () {
       postJSON("/api/reveal", { path: m.path }).catch(function (err) {
         showError(err.message);
@@ -281,59 +344,160 @@
     };
     row.appendChild(open);
 
-    function syncRow() {
-      Array.prototype.forEach.call(row.parentNode.children, function (child, i) {
-        if (!child.classList.contains("member")) return;
-        var on = child.querySelector("input[type=radio]").checked;
-        child.classList.toggle("keep", on);
-        var b = child.querySelector(".badge");
-        b.className = "badge " + (on ? "keep" : "del");
-        b.textContent = on ? "保留" : "可删除候选";
-      });
+    var del = el("button", "small danger", "移到回收站");
+    if (g.kind !== "content") {
+      del.disabled = true;
+      del.title = "该组只是「疑似重复」，内容未经全量校验，不提供删除";
+    } else if (index === 0) {
+      del.disabled = true;
+      del.title = "保留项不能删；先把另一份选为保留";
     }
-    radio.addEventListener("change", syncRow);
+    del.onclick = function () { removeMember(g, m, del); };
+    row.appendChild(del);
+
+    radio.addEventListener("change", function () {
+      if (!radio.checked) return;
+      state.keepByGroup[g.id] = m.path;
+      syncGroup(g, box);
+    });
+
+    // 整行都能点：点在行内任意空白/文字处也算选中这一份
+    row.addEventListener("click", function (e) {
+      if (row.classList.contains("deleted") || radio.checked) return;
+      for (var t = e.target; t && t !== row; t = t.parentNode) {
+        var n = t.tagName;
+        if (n === "BUTTON" || n === "INPUT" || n === "A") return;
+      }
+      radio.checked = true;
+      state.keepByGroup[g.id] = m.path;
+      syncGroup(g, box);
+    });
     return row;
   }
 
-  function copyText(text, btn) {
-    var done = function () {
-      var old = btn.textContent;
-      btn.textContent = "已复制";
-      setTimeout(function () { btn.textContent = old; }, 1200);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(function () { fallback(); });
-    } else {
-      fallback();
-    }
-    function fallback() {
-      var ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand("copy"); done(); } catch (e) { showError("复制失败，请手动选中路径。"); }
-      document.body.removeChild(ta);
-    }
+  // 组内切换保留项后，刷新整组的徽章/按钮状态
+  function syncGroup(g, box) {
+    var keep = state.keepByGroup[g.id] || "";
+    g.members.forEach(function (m) {
+      var row = state.rows[m.path];
+      if (!row || row.classList.contains("deleted")) return;
+      var on = m.path === keep;
+      row.classList.toggle("keep", on);
+      var badge = row.querySelector(".badge");
+      if (badge) {
+        badge.className = "badge " + (on ? "keep" : "del");
+        badge.textContent = on ? "保留" : "删除";
+      }
+      var btn = row.querySelector("button.danger");
+      if (btn && g.kind === "content") btn.disabled = on;
+    });
+    refreshDeleteAll();
+  }
+
+  // 收集「当前没有被标为保留」的成员，供批量删除使用
+  function collectDoomed() {
+    var items = [], skipGroups = 0;
+    ((state.result && state.result.groups) || []).forEach(function (g) {
+      if (g.kind !== "content") { skipGroups++; return; }
+      var keep = state.keepByGroup[g.id] || "";
+      if (!keep) return;
+      g.members.forEach(function (m) {
+        if (m.path === keep || state.deleted[m.path]) return;
+        items.push({ path: m.path, keep: keep });
+      });
+    });
+    return { items: items, skipGroups: skipGroups };
+  }
+
+  function refreshDeleteAll() {
+    var btn = $("btn-delete-all"), hint = $("delete-all-hint");
+    if (!btn || !hint) return;
+    var info = collectDoomed();
+    var n = info.items.length;
+    btn.textContent = n ? "删除所有重复 mod（" + n + " 个）" : "删除所有重复 mod";
+    btn.disabled = n === 0 || state.deleting;
+    if (state.deleting) { hint.textContent = "正在移到回收站…"; return; }
+    if (!n) { hint.textContent = "没有可删的成员：每组只留「保留」那一份。"; return; }
+    hint.textContent = "把每组里没标「保留」的 " + n + " 个文件夹移到回收站" +
+      (info.skipGroups ? "；另有 " + info.skipGroups + " 组「疑似重复」未全量校验，会跳过" : "") + "。";
+  }
+
+  function markDeleted(path) {
+    state.deleted[path] = true;
+    var row = state.rows[path];
+    if (!row) return;
+    row.classList.add("deleted");
+    row.classList.remove("keep");
+    var radio = row.querySelector("input[type=radio]");
+    if (radio) { radio.checked = false; radio.disabled = true; }
+    var badge = row.querySelector(".badge");
+    if (badge) { badge.className = "badge del"; badge.textContent = "已删除"; }
+    var btn = row.querySelector("button.danger");
+    if (btn) { btn.disabled = true; btn.title = "已经删掉了"; }
+  }
+
+  function deleteAllDupes() {
+    if (state.deleting) return;
+    var items = collectDoomed().items;
+    if (!items.length) { showError("没有可删的成员。"); return; }
+    if (!state.job) { showError("扫描任务已失效，请重新扫描后再删。"); return; }
+    var shown = items.slice(0, 10).map(function (it) { return it.path; }).join("\n");
+    if (items.length > 10) shown += "\n… 还有 " + (items.length - 10) + " 个";
+    if (!window.confirm("把这 " + items.length + " 个文件夹移到回收站？\n每组里标「保留」的那一份不会动。\n\n" +
+      shown + "\n\n它们都可以从回收站还原。")) return;
+
+    state.deleting = true;
+    refreshDeleteAll();
+    postJSON("/api/delete-batch", {
+      job_id: state.job,
+      items: items.map(function (it) { return { path: it.path, keep: it.keep }; })
+    }, 300000).then(function (res) {
+      state.deleting = false;
+      var deleted = res.deleted || [], failed = res.failed || [];
+      var doneSet = Object.create(null);
+      deleted.forEach(function (p) { doneSet[p] = true; });
+      items.forEach(function (it) { if (doneSet[it.path]) markDeleted(it.path); });
+      clearBanners();
+      if (failed.length) {
+        $("banners").appendChild(banner("已移到回收站 " + deleted.length + " 个；" + failed.length +
+          " 个失败：" + failed.map(function (f) { return f.path + "（" + f.error + "）"; }).join("；"), "err"));
+      } else {
+        $("banners").appendChild(banner("已把 " + deleted.length +
+          " 个重复 mod 移到回收站（上面的统计数字未更新，需要的话重新扫描一次）"));
+      }
+      refreshDeleteAll();
+    }).catch(function (err) {
+      state.deleting = false;
+      refreshDeleteAll();
+      showError(err.message);
+    });
+  }
+
+  function removeMember(g, m, btn) {
+    var keep = state.keepByGroup[g.id] || "";
+    if (!keep) { showError("请先在组内选一份要保留的。"); return; }
+    if (keep === m.path) { showError("要删的正是组内标为「保留」的那一份。"); return; }
+    if (!state.job) { showError("扫描任务已失效，请重新扫描后再删。"); return; }
+    if (!window.confirm("把这个文件夹移到回收站？\n\n" + m.path + "\n\n它可以从回收站还原。")) return;
+    btn.disabled = true;
+    postJSON("/api/delete", { job_id: state.job, path: m.path, keep: keep }, 120000).then(function () {
+      markDeleted(m.path);
+      clearBanners();
+      $("banners").appendChild(banner("已移到回收站：" + m.path + "（上面的统计数字未更新，需要的话重新扫描一次）"));
+      refreshDeleteAll();
+    }).catch(function (err) {
+      btn.disabled = false;
+      showError(err.message);
+    });
   }
 
   function renderEmptyMods(list) {
     var wrap = $("empty-wrap");
     wrap.textContent = "";
     if (!list.length) return;
-    var panel = document.createElement("div");
-    panel.className = "panel";
-    var h = document.createElement("div");
-    h.className = "phase";
-    h.textContent = "空 mod（natives/ 下一个文件都没有）：" + list.length + " 个";
-    panel.appendChild(h);
-    list.forEach(function (p) {
-      var d = document.createElement("div");
-      d.className = "path";
-      d.textContent = p;
-      panel.appendChild(d);
-    });
+    var panel = el("div", "panel");
+    panel.appendChild(el("div", "phase", "空 mod（natives/ 下一个文件都没有）：" + list.length + " 个"));
+    list.forEach(function (p) { panel.appendChild(el("div", "path", p)); });
     wrap.appendChild(panel);
   }
 
@@ -341,19 +505,10 @@
     var wrap = $("warn-wrap");
     wrap.textContent = "";
     if (!list.length) return;
-    var panel = document.createElement("div");
-    panel.className = "panel";
-    var h = document.createElement("div");
-    h.className = "phase";
-    h.textContent = "提示 / 警告：" + list.length + " 条";
-    panel.appendChild(h);
-    var ul = document.createElement("ul");
-    ul.className = "warn-list";
-    list.forEach(function (w) {
-      var li = document.createElement("li");
-      li.textContent = w;
-      ul.appendChild(li);
-    });
+    var panel = el("div", "panel");
+    panel.appendChild(el("div", "phase", "提示 / 警告：" + list.length + " 条"));
+    var ul = el("ul", "warn-list");
+    list.forEach(function (w) { ul.appendChild(el("li", null, w)); });
     panel.appendChild(ul);
     wrap.appendChild(panel);
   }
@@ -393,9 +548,14 @@
     if (!state.result) return;
     var rows = [["组号", "成员数", "单个mod字节", "该组可回收字节", "结构签名", "角色", "mod路径", "文件数", "字节"]];
     (state.result.groups || []).forEach(function (g) {
-      g.members.forEach(function (m, i) {
+      var keep = state.keepByGroup[g.id] || "";
+      var kept = keep || (g.members[0] && g.members[0].path);
+      g.members.forEach(function (m) {
+        // 以当前界面上的选择为准（默认选择是第一个成员）
+        var role = kept === m.path ? "保留" : "删除";
+        if (state.deleted[m.path]) role = "已删除";
         rows.push([g.id, g.count, g.member_bytes, g.reclaimable_bytes, g.structure_sig,
-          i === 0 ? "保留" : "可删除候选", m.path, m.files, m.bytes]);
+          role, m.path, m.files, m.bytes]);
       });
     });
     var text = "\ufeff" + rows.map(function (r) { return r.map(csvCell).join(","); }).join("\r\n") + "\r\n";
@@ -409,16 +569,27 @@
     $("btn-json").onclick = exportJSON;
     $("btn-csv").onclick = exportCSV;
 
+    fillJobs(8);
+    loadRoots();
+    var saveTimer = null;
+    $("roots").addEventListener("input", function () {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveRoots, 300);
+    });
+
     api("/api/capabilities").then(function (cap) {
-      if (cap && cap.browse) {
+      if (!cap) return;
+      if (cap.default_jobs) fillJobs(cap.default_jobs);
+      if (cap.browse) {
         var btn = $("btn-browse");
         btn.hidden = false;
         btn.onclick = function () {
           btn.disabled = true;
-          api("/api/browse").then(function (res) {
+          api("/api/browse", null, BROWSE_TIMEOUT).then(function (res) {
             if (res && res.path) {
               var box = $("roots");
               box.value = box.value.trim() ? box.value.replace(/\s+$/, "") + "\n" + res.path : res.path;
+              saveRoots();
             }
           }).catch(function (err) {
             showError(err.message);

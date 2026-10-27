@@ -1,9 +1,5 @@
+.*
 .*/
-*/
-meshes/
-
-# mod_dup_checker.py 的前端资源与功能模块，需要纳入版本管理
-!mod_dup_checker/
-!mod_dup_checker/**
-
 __pycache__/
+cache/
+meshes/

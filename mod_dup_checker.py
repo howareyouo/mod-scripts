@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
 from mod_dup_checker.cli import run_cli, setup_console
@@ -25,6 +26,9 @@ from mod_dup_checker.webui import serve
 
 def main(argv=None):
     setup_console()
+    # 扫描过程中的问题走 logging；CLI 和 Web 两种模式共用同一条输出格式
+    logging.basicConfig(level=logging.WARNING, format="[%(levelname)s] %(message)s")
+
 
     parser = argparse.ArgumentParser(
         description="mod 重复检测：只比较 natives/ 下的文件，按路径+大小+内容判定重复。",

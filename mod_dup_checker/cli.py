@@ -49,10 +49,11 @@ def run_cli(paths, jobs):
                 snap["phase"], pct, snap["scanned_mods"], snap["total_mods"],
                 done, total, fmt_bytes(snap["bytes_read"]),
             )
-            sys.stdout.write("\r" + line + "     ")
+            sys.stdout.write("\r" + line)
             sys.stdout.flush()
             stop.wait(0.3)
-        sys.stdout.write("\r" + " " * 110 + "\r")
+        # \x1b[K 抹掉整行剩余内容，不用猜上一行有多长
+        sys.stdout.write("\r\x1b[K")
         sys.stdout.flush()
 
     thread = threading.Thread(target=monitor, name="cli-progress", daemon=True)
@@ -70,7 +71,8 @@ def run_cli(paths, jobs):
     print("阶段耗时：结构 %sms / 采样 %sms / 全量 %sms / 总计 %dms"
           % (times.get("structure", 0), times.get("sample", 0),
              times.get("full", 0), stats["elapsed_ms"]))
-    print("实际读取：%s（采样 + 全量，缓存命中不计）" % fmt_bytes(stats.get("bytes_read", 0)))
+    print("实际读取：%s（采样 + 全量；另有 %d 个文件命中缓存不计入）"
+          % (fmt_bytes(stats.get("bytes_read", 0)), stats.get("cache_hits", 0)))
     print("重复结果：%d 组，%d 个 mod，可回收 %s"
           % (len(res["groups"]), stats["dup_mods"], fmt_bytes(stats["reclaimable_bytes"])))
     if res["cancelled"]:
