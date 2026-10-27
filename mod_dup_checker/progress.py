@@ -1,4 +1,4 @@
-"""扫描进度快照（线程安全）。"""
+"""扫描进度快照 (线程安全)."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class Progress:
             self.total_mods = total
 
     def set_label(self, phase):
-        """只换阶段名，保留上一阶段的计数（收尾时进度条不会突然归零）。"""
+        """只换阶段名, 保留上一阶段的计数 (收尾时进度条不会突然归零)."""
         with self._lock:
             self.phase = phase
 

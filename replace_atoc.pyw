@@ -45,7 +45,7 @@ def get_file_hash(filepath, algorithm='sha256'):
     hash_obj = hashlib.new(algorithm)
     
     with open(filepath, 'rb') as f:
-        # 分块读取，避免大文件占用过多内存
+        # 分块读取, 避免大文件占用过多内存
         chunk_size = 8192
         while chunk := f.read(chunk_size):
             hash_obj.update(chunk)
@@ -62,18 +62,18 @@ def format_filesize(filepath):
 
 def parse_list_field(text):
     """Parse a comma-separated text field into a tuple of non-empty items."""
-    items = [item.strip() for item in text.replace("，", ",").split(",")]
+    items = [item.strip() for item in text.replace(", ", ",").split(",")]
     return tuple(item for item in items if item)
 
 def clean_path_line(line):
-    """去掉复制路径时可能带上的首尾空白和双引号。"""
+    """去掉复制路径时可能带上的首尾空白和双引号."""
     return line.strip().strip('"').strip()
 
 # 用户上次输入/选择的持久化文件 (与脚本同目录)
 CONFIG_FILE = CURRENT_DIR / "replace_atoc_config.json"
 
 def load_config():
-    """读取上次的 GUI 设置, 缺失或损坏时回退到脚本顶部的默认值。"""
+    """读取上次的 GUI 设置, 缺失或损坏时回退到脚本顶部的默认值."""
     defaults = {
         "directory": INGAME_DIR,
         "sources": list(DEFAULT_SOURCE_FILES),
@@ -104,7 +104,7 @@ def save_config(config):
         pass
 
 class QueueWriter:
-    """把工作线程里 print 的输出转发到队列, 由 GUI 轮询显示到日志区。"""
+    """把工作线程里 print 的输出转发到队列, 由 GUI 轮询显示到日志区."""
     def __init__(self, log_queue):
         self.log_queue = log_queue
 
@@ -140,7 +140,7 @@ DARK_STYLES = {
 }
 
 def apply_dark_theme(widget):
-    """递归地给 widget 及其子控件应用暗色样式 (日志界面在运行时才创建, 需要再次调用)。"""
+    """递归地给 widget 及其子控件应用暗色样式 (日志界面在运行时才创建, 需要再次调用)."""
     opts = DARK_STYLES.get(widget.winfo_class())
     if opts:
         try:
@@ -254,7 +254,7 @@ def launch_gui():
         toggle_source()
 
     def save_current():
-        """把当前界面上的输入/选择写入配置文件。"""
+        """把当前界面上的输入/选择写入配置文件."""
         save_config({
             "directory": dir_var.get().strip(),
             "sources": [clean_path_line(line) for line in files_text.get("1.0", "end").splitlines() if clean_path_line(line)],
@@ -275,7 +275,7 @@ def launch_gui():
             print("正在计算源文件哈希...")
             hashes = get_hashes_from_files(sources)
             if not hashes:
-                print("未计算出任何有效哈希, 退出。")
+                print("未计算出任何有效哈希, 退出.")
                 return
             print(f"开始扫描目录: {directory}")
             matches = replace_matching_files(directory, hashes, source)
@@ -287,7 +287,7 @@ def launch_gui():
             log_queue.put(None)  # 结束标记
 
     def back_to_main():
-        """销毁日志界面, 返回主设置界面 (不退出程序)。"""
+        """销毁日志界面, 返回主设置界面 (不退出程序)."""
         ui["log_frame"].destroy()
         root.title("ATOC 替换工具")
         root.resizable(False, False)
@@ -300,7 +300,7 @@ def launch_gui():
                 item = log_queue.get_nowait()
                 if item is None:
                     running[0] = False
-                    ui["status_var"].set("完成, 点击关闭返回主界面。")
+                    ui["status_var"].set("完成, 点击关闭返回主界面.")
                     root.protocol("WM_DELETE_WINDOW", back_to_main)
                     ui["close_btn"].config(state="normal", command=back_to_main)
                     return
@@ -312,7 +312,7 @@ def launch_gui():
         root.after(100, poll_log)
 
     def on_close_while_running():
-        messagebox.showinfo("提示", "正在运行, 请等待完成。", parent=root)
+        messagebox.showinfo("提示", "正在运行, 请等待完成.", parent=root)
 
     def on_start():
         global INGAME_DIR, PREFIXES, SUFFIXES, SWITCH
@@ -322,7 +322,7 @@ def launch_gui():
             return
         sources = [clean_path_line(line) for line in files_text.get("1.0", "end").splitlines() if clean_path_line(line)]
         if not sources:
-            messagebox.showerror("错误", "请至少填写一个源文件。", parent=root)
+            messagebox.showerror("错误", "请至少填写一个源文件.", parent=root)
             return
         missing = [s for s in sources if not os.path.isfile(s)]
         if missing and not messagebox.askyesno(
@@ -360,7 +360,7 @@ def launch_gui():
         root.after(100, poll_log)
 
     def on_delete_backups():
-        """删除当前目录下所有 _backup 备份文件夹。"""
+        """删除当前目录下所有 _backup 备份文件夹."""
         directory = dir_var.get().strip()
         if not directory or not os.path.isdir(directory):
             messagebox.showerror("错误", f"游戏目录无效:\n{directory}", parent=root)
@@ -375,11 +375,11 @@ def launch_gui():
             # 不进入 _backup 内部继续遍历
             dirs[:] = [d for d in dirs if d != "_backup"]
         if not backup_dirs:
-            messagebox.showinfo("提示", "未找到任何 _backup 文件夹。", parent=root)
+            messagebox.showinfo("提示", "未找到任何 _backup 文件夹.", parent=root)
             return
         if not messagebox.askyesno(
             "确认",
-            f"将删除 {len(backup_dirs)} 个 _backup 文件夹, 共 {file_count} 个文件。\n此操作不可恢复, 是否继续?",
+            f"将删除 {len(backup_dirs)} 个 _backup 文件夹, 共 {file_count} 个文件.\n此操作不可恢复, 是否继续?",
             parent=root,
         ):
             return
@@ -392,9 +392,9 @@ def launch_gui():
                 failed += 1
                 print(f"删除失败: {backup_dir}: {e}")
         if failed:
-            messagebox.showwarning("完成", f"成功删除 {deleted} 个 _backup 文件夹, {failed} 个删除失败。", parent=root)
+            messagebox.showwarning("完成", f"成功删除 {deleted} 个 _backup 文件夹, {failed} 个删除失败.", parent=root)
         else:
-            messagebox.showinfo("完成", f"已删除 {deleted} 个 _backup 文件夹。", parent=root)
+            messagebox.showinfo("完成", f"已删除 {deleted} 个 _backup 文件夹.", parent=root)
 
     btns = tk.Frame(frm)
     btns.grid(row=10, column=0, columnspan=2, sticky="we", pady=(10, 0))

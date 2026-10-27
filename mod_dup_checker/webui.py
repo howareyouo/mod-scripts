@@ -1,4 +1,4 @@
-"""HTTP 服务：托管 web/ 下的前端资源 + JSON 接口。"""
+"""HTTP 服务：托管 web/ 下的前端资源 + JSON 接口."""
 
 from __future__ import annotations
 
@@ -16,16 +16,16 @@ from .paths import long_path
 from .scanner import REGISTRY
 from .trash import recycle, recycle_many
 
-# 批量删除一次最多提交多少个路径；正常规模远小于这个数，纯粹是防御性上限
+# 批量删除一次最多提交多少个路径；正常规模远小于这个数, 纯粹是防御性上限
 MAX_BATCH_ITEMS = 5000
-# 请求体上限（字节）：超过就分块丢弃，避免一个畸形请求把内存吃满
+# 请求体上限 (字节)：超过就分块丢弃, 避免一个畸形请求把内存吃满
 MAX_BODY_BYTES = 4 * 1024 * 1024
-# 声明体量超过这个值的连接直接断开，不做排空（排空等于陪攻击者传完数据）
+# 声明体量超过这个值的连接直接断开, 不做排空 (排空等于陪攻击者传完数据)
 MAX_REJECT_BYTES = 64 * 1024 * 1024
 DRAIN_CHUNK = 64 * 1024
-# 单个连接的空闲超时；没有它，慢速连接会一直占着线程
+# 单个连接的空闲超时；没有它, 慢速连接会一直占着线程
 REQUEST_TIMEOUT = 30
-# 目录选择窗口最多等多久（用户可能开着窗口去泡咖啡）
+# 目录选择窗口最多等多久 (用户可能开着窗口去泡咖啡)
 BROWSE_TIMEOUT = 600
 
 MIME_TYPES = {
@@ -38,13 +38,13 @@ MIME_TYPES = {
     ".ico": "image/x-icon",
 }
 
-# 路径规范化（realpath 在 Windows 上要逐段 lstat）很贵，一批请求里同一路径会被问很多遍
+# 路径规范化 (realpath 在 Windows 上要逐段 lstat)很贵, 一批请求里同一路径会被问很多遍
 _REAL_MEMO = {}
 _REAL_MEMO_LIMIT = 100000
 
 
 def _real(path):
-    """规范化成可比较的真实路径：绝对、解开重解析点、大小写不敏感。"""
+    """规范化成可比较的真实路径：绝对、解开重解析点、大小写不敏感."""
     cached = _REAL_MEMO.get(path)
     if cached is not None:
         return cached
@@ -56,7 +56,7 @@ def _real(path):
 
 
 def _under_roots(path, roots):
-    """判断 path 是否严格位于某个扫描根目录之下（根目录本身不算）。"""
+    """判断 path 是否严格位于某个扫描根目录之下 (根目录本身不算)."""
     target = _real(path)
     for root in roots:
         if target.startswith(_real(root) + os.sep):
@@ -65,7 +65,7 @@ def _under_roots(path, roots):
 
 
 class ApiError(Exception):
-    """接口层的可展示错误：统一由 _dispatch 变成 {"error": ...}。"""
+    """接口层的可展示错误：统一由 _dispatch 变成 {"error": ...}."""
 
     def __init__(self, message, code=400):
         super().__init__(message)
@@ -73,7 +73,7 @@ class ApiError(Exception):
 
 
 def web_path(url_path):
-    """把 URL 路径映射到 web/ 下的真实文件；越界、非前端资源或不存在时返回 None。"""
+    """把 URL 路径映射到 web/ 下的真实文件；越界、非前端资源或不存在时返回 None."""
     rel = url_path.lstrip("/") or "index.html"
     parts = rel.split("/")
     if any(p in ("", ".", "..") or "\\" in p or ":" in p for p in parts):
@@ -82,7 +82,7 @@ def web_path(url_path):
     target = os.path.realpath(os.path.join(base, *parts))
     if not target.startswith(base + os.sep):
         return None
-    # 只托管已知的前端扩展名，备份文件之类的杂项一律 404
+    # 只托管已知的前端扩展名, 备份文件之类的杂项一律 404
     if os.path.splitext(target)[1].lower() not in MIME_TYPES:
         return None
     return target if os.path.isfile(target) else None
@@ -90,10 +90,10 @@ def web_path(url_path):
 
 # -- 删除候选判定 --------------------------------------------------------
 def build_delete_index(job):
-    """{规范化路径: (所在组, {规范化路径: 原始路径})}。
+    """{规范化路径: (所在组, {规范化路径: 原始路径})}.
 
-    一批删除只建一次；否则每个条目都要重扫全部组并对每个成员做 realpath，
-    条目数一多就是次数爆炸。
+    一批删除只建一次；否则每个条目都要重扫全部组并对每个成员做 realpath, 
+    条目数一多就是次数爆炸.
     """
     index = {}
     for group in job.result().get("groups") or []:
@@ -109,30 +109,33 @@ def build_delete_index(job):
 
 
 def pick_deletable(job, target, keep, index=None):
-    """确认 target 是本次扫描结果里的「删除候选」，返回要删除的实际路径。"""
+    """确认 target 是本次扫描结果里的「删除候选」, 返回要删除的实际路径.
+
+    不合规时直接抛 :class:`ApiError` (400), 由 _dispatch 统一变成 {"error": ...}.
+    """
     if index is None:
         index = build_delete_index(job)
     want = _real(target)
     entry = index.get(want)
     if entry is None:
-        raise ValueError("该路径不在本次扫描结果的重复组里，已拒绝删除。")
+        raise ApiError("该路径不在本次扫描结果的重复组里, 已拒绝删除.")
 
     group, mapping = entry
     if group.get("kind") != "content":
-        raise ValueError("该组只是「疑似重复」，内容未经全量校验，请人工核对后再删。")
+        raise ApiError("该组只是「疑似重复」, 内容未经全量校验, 请人工核对后再删.")
     if len(mapping) < 2:
-        raise ValueError("该组只剩一个成员，删掉就没有副本了。")
+        raise ApiError("该组只剩一个成员, 删掉就没有副本了.")
     keep_want = _real(keep) if keep else None
     if not keep_want or keep_want not in mapping:
-        raise ValueError("请先在组内指定要保留的那一份。")
+        raise ApiError("请先在组内指定要保留的那一份.")
     if keep_want == want:
-        raise ValueError("要删的正是组内标为「保留」的那一份。")
+        raise ApiError("要删的正是组内标为「保留」的那一份.")
 
     hit = mapping[want]
     if not _under_roots(hit, job.roots):
-        raise ValueError("路径不在本次扫描的目录范围内，已拒绝。")
+        raise ApiError("路径不在本次扫描的目录范围内, 已拒绝.")
     if not os.path.isdir(long_path(hit)):
-        raise ValueError("路径已不存在，可能已被移动或删除。")
+        raise ApiError("路径已不存在, 可能已被移动或删除.")
     return hit
 
 
@@ -188,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
         "/api/delete-batch": "_post_delete_batch",
     }
 
-    def log_message(self, fmt, *args):  # 静音，保持控制台干净
+    def log_message(self, fmt, *args):  # 静音, 保持控制台干净
         pass
 
     # -- 基础 ------------------------------------------------------------
@@ -209,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, body, "application/json; charset=utf-8")
 
     def _drain(self, length):
-        """分块丢弃请求体。读不干净就要求断开连接，绝不按声明长度一次性分配。"""
+        """分块丢弃请求体.读不干净就要求断开连接, 绝不按声明长度一次性分配."""
         remaining = length
         while remaining > 0:
             chunk = self.rfile.read(min(remaining, DRAIN_CHUNK))
@@ -228,12 +231,12 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         if length > MAX_REJECT_BYTES:
             self.close_connection = True
-            raise ApiError("请求体过大，已断开连接。", 413)
+            raise ApiError("请求体过大, 已断开连接.", 413)
         if length > MAX_BODY_BYTES:
-            # 排空后照样报 413：让客户端能把错误读完，而不是写到一半被 RST
+            # 排空后照样报 413：让客户端能把错误读完, 而不是写到一半被 RST
             if not self._drain(length):
-                raise ApiError("请求体过大，已断开连接。", 413)
-            raise ApiError("请求体过大（上限 %d MiB）。" % (MAX_BODY_BYTES // (1024 * 1024)), 413)
+                raise ApiError("请求体过大, 已断开连接.", 413)
+            raise ApiError("请求体过大 (上限 %d MiB)." % (MAX_BODY_BYTES // (1024 * 1024)), 413)
         try:
             raw = self.rfile.read(length)
         except OSError:
@@ -250,26 +253,31 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(message)
         return value.strip()
 
+    def _delete_pair(self, data, where=""):
+        """删除接口共用的 {path, keep} 取参.where 用在报错文案前缀上."""
+        return (self._require_str(data, "path", "%s缺少 path 参数." % where),
+                self._require_str(data, "keep", "%s缺少 keep 参数 (组内要保留的那一份)." % where))
+
     def _job(self, job_id=None):
         job = REGISTRY.get(job_id)
         if job is None:
-            raise ApiError("找不到该扫描任务，请重新开始扫描。", 404)
+            raise ApiError("找不到该扫描任务, 请重新开始扫描.", 404)
         return job
 
     def _check_same_origin(self):
-        """挡住任意网页对 127.0.0.1 的跨站写入。
+        """挡住任意网页对 127.0.0.1 的跨站写入.
 
-        跨站发 application/json 本来要先过 CORS 预检，这里连 Origin 一起校验；
-        Content-Type 非 json 的（表单类"简单请求"）直接拒绝。
+        跨站发 application/json 本来要先过 CORS 预检, 这里连 Origin 一起校验；
+        Content-Type 非 json 的 (表单类"简单请求")直接拒绝.
         """
         origin = self.headers.get("Origin")
         if origin:
             host = (self.headers.get("Host") or "").lower()
             if origin.lower() not in ("http://" + host, "https://" + host):
-                raise ApiError("拒绝跨站请求。", 403)
+                raise ApiError("拒绝跨站请求.", 403)
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype and ctype != "application/json":
-            raise ApiError("Content-Type 必须是 application/json。", 415)
+            raise ApiError("Content-Type 必须是 application/json.", 415)
 
     # -- 路由 ------------------------------------------------------------
     def do_GET(self):
@@ -314,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             with open(asset, "rb") as f:
                 body = f.read()
         except OSError as exc:
-            raise ApiError("读取前端文件失败：%s（%s）" % (asset, exc.strerror or exc), 500)
+            raise ApiError("读取前端文件失败：%s (%s)" % (asset, exc.strerror or exc), 500)
         ctype = MIME_TYPES.get(os.path.splitext(asset)[1].lower(), "application/octet-stream")
         self._send(200, body, ctype)
 
@@ -324,9 +332,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_browse(self, _parsed):
         if not tk_available():
-            raise ApiError("当前环境不可用（缺少 tkinter），请手动输入目录。", 501)
+            raise ApiError("当前环境不可用 (缺少 tkinter), 请手动输入目录.", 501)
         if not _TK_LOCK.acquire(blocking=False):
-            raise ApiError("已经有一个选择目录的窗口打开了，请先处理它。", 409)
+            raise ApiError("已经有一个选择目录的窗口打开了, 请先处理它.", 409)
 
         box = {}
 
@@ -344,50 +352,52 @@ class Handler(BaseHTTPRequestHandler):
         if "error" in box:
             raise ApiError("打开选择目录窗口失败：%s" % box["error"], 500)
         if "path" not in box:
-            raise ApiError("选择目录窗口已关闭或超时。", 504)
+            raise ApiError("选择目录窗口已关闭或超时.", 504)
         self._json({"path": box["path"]})
 
+    def _query_job(self, parsed):
+        """GET 接口共用的 ?job= 解析 (缺省取当前任务)."""
+        return self._job((parse_qs(parsed.query).get("job") or [None])[0])
+
     def _get_status(self, parsed):
-        query = parse_qs(parsed.query)
-        self._json(self._job((query.get("job") or [None])[0]).status())
+        self._json(self._query_job(parsed).status())
 
     def _get_result(self, parsed):
-        query = parse_qs(parsed.query)
-        self._json(self._job((query.get("job") or [None])[0]).result())
+        self._json(self._query_job(parsed).result())
 
     # -- POST ------------------------------------------------------------
     def _post_scan(self, _parsed):
         data = self._read_json()
         roots = data.get("roots")
         if not isinstance(roots, list):
-            raise ApiError("roots 必须是字符串数组。")
+            raise ApiError("roots 必须是字符串数组.")
         roots = [r for r in roots if isinstance(r, str) and r.strip()]
         if not roots:
-            raise ApiError("请输入至少一个 mod 集合目录。")
+            raise ApiError("请输入至少一个 mod 集合目录.")
         jobs = data.get("jobs")
         if not isinstance(jobs, int):
             jobs = None
         job = REGISTRY.start(roots, jobs)
         if job is None:
-            raise ApiError("已有扫描任务在进行中，请先取消或等待完成。", 409)
+            raise ApiError("已有扫描任务在进行中, 请先取消或等待完成.", 409)
         self._json({"job_id": job.id})
 
     def _post_cancel(self, _parsed):
         job = self._job(self._read_json().get("job_id"))
         if job.finished:
-            raise ApiError("该任务已经结束。", 409)
+            raise ApiError("该任务已经结束.", 409)
         job.cancel()
         self._json({"ok": True})
 
     def _post_reveal(self, _parsed):
-        target = self._require_str(self._read_json(), "path", "缺少 path 参数。")
+        target = self._require_str(self._read_json(), "path", "缺少 path 参数.")
         if not os.path.isabs(target):
-            raise ApiError("path 必须是绝对路径。")
+            raise ApiError("path 必须是绝对路径.")
         if not os.path.exists(long_path(target)):
             raise ApiError("路径不存在：%s" % target, 404)
         try:
             if os.path.isdir(long_path(target)):
-                os.startfile(target)  # noqa: S606 - 本地工具，打开资源管理器
+                os.startfile(target)  # noqa: S606 - 本地工具, 打开资源管理器
             else:
                 subprocess.Popen(["explorer", "/select," + target])
         except OSError as exc:
@@ -397,12 +407,8 @@ class Handler(BaseHTTPRequestHandler):
     def _post_delete(self, _parsed):
         data = self._read_json()
         job = self._job(data.get("job_id"))
-        target = self._require_str(data, "path", "缺少 path 参数。")
-        keep = self._require_str(data, "keep", "缺少 keep 参数（组内要保留的那一份）。")
-        try:
-            doomed = pick_deletable(job, target, keep)
-        except ValueError as exc:
-            raise ApiError(str(exc))
+        target, keep = self._delete_pair(data)
+        doomed = pick_deletable(job, target, keep)
         try:
             recycle(doomed)
         except OSError as exc:
@@ -414,30 +420,29 @@ class Handler(BaseHTTPRequestHandler):
         job = self._job(data.get("job_id"))
         items = data.get("items")
         if not isinstance(items, list) or not items:
-            raise ApiError("items 必须是非空数组。")
+            raise ApiError("items 必须是非空数组.")
         if len(items) > MAX_BATCH_ITEMS:
-            raise ApiError("一次最多删除 %d 个，请分批处理。" % MAX_BATCH_ITEMS)
+            raise ApiError("一次最多删除 %d 个, 请分批处理." % MAX_BATCH_ITEMS)
 
         wanted, seen = [], set()
         for item in items:
             if not isinstance(item, dict):
-                raise ApiError("items 里的每一项都必须是 {path, keep} 对象。")
-            target = self._require_str(item, "path", "items 里缺少 path 参数。")
-            keep = self._require_str(item, "keep", "items 里缺少 keep 参数（组内要保留的那一份）。")
+                raise ApiError("items 里的每一项都必须是 {path, keep} 对象.")
+            target, keep = self._delete_pair(item, "items 里")
             key = _real(target)
             if key in seen:
                 continue
             seen.add(key)
             wanted.append((target, keep))
 
-        # 先整批校验，任何一条不合法就直接拒绝，避免删到一半停下
+        # 先整批校验, 任何一条不合法就直接拒绝, 避免删到一半停下
         index = build_delete_index(job)
         plan = []
         for target, keep in wanted:
             try:
                 plan.append((target, pick_deletable(job, target, keep, index)))
             except ValueError as exc:
-                raise ApiError("%s（%s）" % (exc, target))
+                raise ApiError("%s (%s)" % (exc, target))
 
         target_of = {doomed: target for target, doomed in plan}
         deleted, failed = recycle_many([doomed for _target, doomed in plan])
@@ -450,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class _Server(ThreadingHTTPServer):
-    # Windows 上 SO_REUSEADDR 允许两个进程绑同一端口，会让「端口被占用」探测失效
+    # Windows 上 SO_REUSEADDR 允许两个进程绑同一端口, 会让「端口被占用」探测失效
     allow_reuse_address = os.name != "nt"
     daemon_threads = True
 
@@ -474,19 +479,19 @@ def serve(args):
         except OSError:
             continue
     if httpd is None:
-        print("无法在 127.0.0.1:%d 附近找到可用端口。" % args.port)
+        print("无法在 127.0.0.1:%d 附近找到可用端口." % args.port)
         return 1
 
     url = "http://127.0.0.1:%d/" % port
     print("mod 重复检测工具已启动：%s" % url, flush=True)
-    print("仅比较 natives/ 下的文件；modinfo.ini、截图等不参与。", flush=True)
-    print("按 Ctrl+C 退出。", flush=True)
+    print("仅比较 natives/ 下的文件；modinfo.ini、截图等不参与.", flush=True)
+    print("按 Ctrl+C 退出.", flush=True)
     if not args.no_browser:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n已退出。")
+        print("\n已退出.")
     finally:
         httpd.server_close()
     return 0

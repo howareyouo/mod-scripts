@@ -15,8 +15,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
-/* Windows 的 ClearType 次像素渲染会让深底上的浅色字显得锐、毛边明显。给文本容器建一个
-   合成层后浏览器会退回灰度抗锯齿，观感明显变柔（代价是略微发虚）。要更柔就取消下一行注释。 */
+/* Windows 的 ClearType 次像素渲染会让深底上的浅色字显得锐、毛边明显.给文本容器建一个
+   合成层后浏览器会退回灰度抗锯齿, 观感明显变柔 (代价是略微发虚).要更柔就取消下一行注释. */
 /* body { transform: translateZ(0); } */
 h1 { font-size: 21px; font-weight: 600; letter-spacing: .02em; margin: 0 0 6px; }
 code {
@@ -28,7 +28,7 @@ code {
   padding: 16px; margin-bottom: 16px;
 }
 .hint { color: var(--dim); margin: 0; font-size: 13.5px; }
-/* 下拉框旁边的小注：比普通提示更小更暗，避免和「线程数」标签混成一体 */
+/* 下拉框旁边的小注：比普通提示更小更暗, 避免和「线程数」标签混成一体 */
 .hint.sub { color: #6f7887; font-size: 12px; }
 textarea {
   width: 100%; min-height: 108px; resize: vertical; padding: 10px 12px;

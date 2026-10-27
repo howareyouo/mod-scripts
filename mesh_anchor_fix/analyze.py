@@ -3,7 +3,7 @@
 import sys, os
 import numpy as np
 
-# RE-Mesh-Editor 插件路径（只读）：修改此处或设置环境变量 RE_MESH_EDITOR_PATH
+# RE-Mesh-Editor 插件路径 (只读)：修改此处或设置环境变量 RE_MESH_EDITOR_PATH
 ADDON_DIR = os.environ.get('RE_MESH_EDITOR_PATH',
                            'F:/Backup/BlenderPortable/scripts/addons/RE-Mesh-Editor')
 sys.path.insert(0, ADDON_DIR)
@@ -82,7 +82,7 @@ def analyze(path):
     return m
 
 def _ask(msg, default):
-    """提示输入路径，回车用默认值；无输入可用(EOF)时也用默认值"""
+    """提示输入路径, 回车用默认值；无输入可用(EOF)时也用默认值"""
     try:
         s = input(f"{msg} (回车={os.path.basename(default) or '跳过'}): ").strip().strip('"').strip("'")
     except EOFError:

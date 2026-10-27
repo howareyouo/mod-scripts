@@ -2,7 +2,8 @@
   "use strict";
 
   var state = {
-    job: null,          // 当前扫描任务 id
+    job: null,          // 正在轮询的扫描任务 (取消用)
+    resultJob: null,    // 最近一次拿到结果的任务 id (删除用, 轮询结束后仍然有效)
     timer: null,        // 轮询定时器
     result: null,       // 最近一次 /api/result
     keepByGroup: Object.create(null),  // 组 id -> 要保留的路径
@@ -13,7 +14,7 @@
   };
 
   var ROOTS_KEY = "mod-dup-checker.roots";
-  var DEFAULT_TIMEOUT = 15000;   // 普通接口的超时（毫秒）
+  var DEFAULT_TIMEOUT = 15000;   // 普通接口的超时 (毫秒)
   var BROWSE_TIMEOUT = 620000;   // 选择目录窗口：用户可能开着窗口走开一会儿
 
   function $(id) { return document.getElementById(id); }
@@ -25,7 +26,7 @@
     return node;
   }
 
-  // 输入框内容存进 localStorage：关掉页面再打开还能接着用上次填的目录。
+  // 输入框内容存进 localStorage：关掉页面再打开还能接着用上次填的目录.
   function loadRoots() {
     try {
       var saved = window.localStorage.getItem(ROOTS_KEY);
@@ -72,7 +73,7 @@
     return fetch(path, opts).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (body) {
         if (!r.ok) {
-          var msg = (body && body.error) || ("请求失败（HTTP " + r.status + "）");
+          var msg = (body && body.error) || ("请求失败 (HTTP " + r.status + ")");
           throw new Error(msg);
         }
         return body;
@@ -101,12 +102,15 @@
 
   function clearBanners() { $("banners").textContent = ""; }
 
-  function showError(text) {
+  // 提示条统一走这里：先清掉旧提示, 再挂一条新的
+  function showBanner(text, kind) {
     clearBanners();
-    $("banners").appendChild(banner(text, "err"));
+    $("banners").appendChild(banner(text, kind));
   }
 
-  // 线程数下拉框由服务端的能力声明决定，不在 HTML 里写死
+  function showError(text) { showBanner(text, "err"); }
+
+  // 线程数下拉框由服务端的能力声明决定, 不在 HTML 里写死
   var JOBS_CHOICES = [1, 2, 4, 6, 8, 12, 16, 24, 32];
 
   function fillJobs(defaultJobs) {
@@ -139,7 +143,7 @@
     if (state.busy) return;
     saveRoots();
     var roots = collectRoots();
-    if (!roots.length) { showError("请输入至少一个 mod 集合目录（一行一个）。"); return; }
+    if (!roots.length) { showError("请输入至少一个 mod 集合目录 (一行一个)."); return; }
     clearBanners();
     state.busy = true;
     state.result = null;
@@ -160,11 +164,10 @@
       jobs: parseInt($("jobs").value, 10) || 8
     }).then(function (res) {
       state.job = res.job_id;
+      state.resultJob = res.job_id;
       poll();
     }).catch(function (err) {
-      state.busy = false;
-      $("btn-scan").disabled = false;
-      $("btn-cancel").disabled = true;
+      resetButtons();          // 与 loadResult 失败时同一套收尾
       showError(err.message);
     });
   }
@@ -192,7 +195,7 @@
 
   function resetButtons() {
     state.busy = false;
-    state.job = null;
+    state.job = null;          // 只清「正在轮询」的标记, resultJob 留着给删除接口用
     $("btn-scan").disabled = false;
     $("btn-cancel").disabled = true;
   }
@@ -212,7 +215,7 @@
   function finish(status) {
     var cancelled = !!status.cancelled;
     if (status.error) showError(status.error);
-    else if (cancelled) { clearBanners(); $("banners").appendChild(banner("扫描已取消：下面的结论可能不完整，未经内容校验的组显示为「疑似重复」。")); }
+    else if (cancelled) showBanner("扫描已取消：下面的结论可能不完整, 未经内容校验的组显示为「疑似重复」.");
     loadResult();
   }
 
@@ -223,7 +226,7 @@
       renderResult(res);
       $("btn-json").disabled = false;
       $("btn-csv").disabled = false;
-      $("foot-hint").textContent = "导出不会写入任何 mod 目录。";
+      $("foot-hint").textContent = "导出不会写入任何 mod 目录.";
     }).catch(function (err) {
       showError(err.message);
       resetButtons();
@@ -241,7 +244,7 @@
 
     var anySuspect = (res.groups || []).some(function (g) { return g.kind === "structure"; });
     if (anySuspect) {
-      $("banners").appendChild(banner("结果包含「疑似重复」组：这些组只通过了结构 + 采样校验，内容未经全量校验。"));
+      $("banners").appendChild(banner("结果包含「疑似重复」组：这些组只通过了结构 + 采样校验, 内容未经全量校验."));
     }
 
     var summary = $("result-summary");
@@ -258,7 +261,7 @@
       ["natives 总字节", fmtBytes(stats.bytes)],
       ["重复 mod 数", String(stats.dup_mods || 0)],
       ["唯一 mod", String(stats.unique || 0)],
-      ["空 mod（无 natives 文件）", String(stats.empty || 0)],
+      ["空 mod (无 natives 文件)", String(stats.empty || 0)],
       ["耗时", fmtSec(stats.elapsed_ms || 0)]
     ].forEach(function (pair) {
       var d = el("div", null, pair[0] + "：");
@@ -279,8 +282,8 @@
 
     if (!(res.groups || []).length) {
       summary.appendChild(el("div", "empty", stats.mods
-        ? "没有发现重复的 mod。"
-        : "没有找到任何 mod：请确认目录下存在「自身含 natives 子目录」的 mod。"));
+        ? "没有发现重复的 mod."
+        : "没有找到任何 mod：请确认目录下存在「自身含 natives 子目录」的 mod."));
     }
 
     (res.groups || []).forEach(function (g) { wrap.appendChild(renderGroup(g)); });
@@ -305,10 +308,10 @@
     tag("单个 " + fmtBytes(g.member_bytes));
     tag("可回收 " + fmtBytes(g.reclaimable_bytes), "reclaim");
     tag("结构签名 " + String(g.structure_sig).slice(0, 8), "sig");
-    if (g.kind === "structure") tag("疑似重复（未全量校验）");
+    if (g.kind === "structure") tag("疑似重复 (未全量校验)");
     box.appendChild(head);
 
-    // 默认保留第一个成员（扫描目录顺序靠前、目录层级最浅的那份）
+    // 默认保留第一个成员 (扫描目录顺序靠前、目录层级最浅的那份)
     state.keepByGroup[g.id] = g.members.length ? g.members[0].path : "";
     g.members.forEach(function (m, i) {
       box.appendChild(renderMember(g, box, m, i));
@@ -325,9 +328,8 @@
     radio.type = "radio";
     radio.name = "keep-" + g.id;
     radio.checked = index === 0;
-    radio.title = "选为要保留的那一份（默认选中：扫描目录顺序靠前、目录层级最浅的那份）";
+    radio.title = "选为要保留的那一份 (默认选中：扫描目录顺序靠前、目录层级最浅的那份)";
     row.appendChild(radio);
-
     row.appendChild(el("span", "badge " + (index === 0 ? "keep" : "del"), index === 0 ? "保留" : "删除"));
 
     var mid = el("div");
@@ -347,7 +349,7 @@
     var del = el("button", "small danger", "移到回收站");
     if (g.kind !== "content") {
       del.disabled = true;
-      del.title = "该组只是「疑似重复」，内容未经全量校验，不提供删除";
+      del.title = "该组只是「疑似重复」, 内容未经全量校验, 不提供删除";
     } else if (index === 0) {
       del.disabled = true;
       del.title = "保留项不能删；先把另一份选为保留";
@@ -375,7 +377,7 @@
     return row;
   }
 
-  // 组内切换保留项后，刷新整组的徽章/按钮状态
+  // 组内切换保留项后, 刷新整组的徽章/按钮状态
   function syncGroup(g, box) {
     var keep = state.keepByGroup[g.id] || "";
     g.members.forEach(function (m) {
@@ -394,7 +396,7 @@
     refreshDeleteAll();
   }
 
-  // 收集「当前没有被标为保留」的成员，供批量删除使用
+  // 收集「当前没有被标为保留」的成员, 供批量删除使用
   function collectDoomed() {
     var items = [], skipGroups = 0;
     ((state.result && state.result.groups) || []).forEach(function (g) {
@@ -414,12 +416,12 @@
     if (!btn || !hint) return;
     var info = collectDoomed();
     var n = info.items.length;
-    btn.textContent = n ? "删除所有重复 mod（" + n + " 个）" : "删除所有重复 mod";
+    btn.textContent = n ? "删除所有重复 mod (" + n + " 个)" : "删除所有重复 mod";
     btn.disabled = n === 0 || state.deleting;
     if (state.deleting) { hint.textContent = "正在移到回收站…"; return; }
-    if (!n) { hint.textContent = "没有可删的成员：每组只留「保留」那一份。"; return; }
+    if (!n) { hint.textContent = "没有可删的成员：每组只留「保留」那一份."; return; }
     hint.textContent = "把每组里没标「保留」的 " + n + " 个文件夹移到回收站" +
-      (info.skipGroups ? "；另有 " + info.skipGroups + " 组「疑似重复」未全量校验，会跳过" : "") + "。";
+      (info.skipGroups ? "；另有 " + info.skipGroups + " 组「疑似重复」未全量校验, 会跳过" : "") + ".";
   }
 
   function markDeleted(path) {
@@ -439,17 +441,17 @@
   function deleteAllDupes() {
     if (state.deleting) return;
     var items = collectDoomed().items;
-    if (!items.length) { showError("没有可删的成员。"); return; }
-    if (!state.job) { showError("扫描任务已失效，请重新扫描后再删。"); return; }
+    if (!items.length) { showError("没有可删的成员."); return; }
+    if (!state.resultJob) { showError("扫描任务已失效, 请重新扫描后再删."); return; }
     var shown = items.slice(0, 10).map(function (it) { return it.path; }).join("\n");
     if (items.length > 10) shown += "\n… 还有 " + (items.length - 10) + " 个";
-    if (!window.confirm("把这 " + items.length + " 个文件夹移到回收站？\n每组里标「保留」的那一份不会动。\n\n" +
-      shown + "\n\n它们都可以从回收站还原。")) return;
+    if (!window.confirm("把这 " + items.length + " 个文件夹移到回收站？\n每组里标「保留」的那一份不会动.\n\n" +
+      shown + "\n\n它们都可以从回收站还原.")) return;
 
     state.deleting = true;
     refreshDeleteAll();
     postJSON("/api/delete-batch", {
-      job_id: state.job,
+      job_id: state.resultJob,
       items: items.map(function (it) { return { path: it.path, keep: it.keep }; })
     }, 300000).then(function (res) {
       state.deleting = false;
@@ -457,14 +459,12 @@
       var doneSet = Object.create(null);
       deleted.forEach(function (p) { doneSet[p] = true; });
       items.forEach(function (it) { if (doneSet[it.path]) markDeleted(it.path); });
-      clearBanners();
-      if (failed.length) {
-        $("banners").appendChild(banner("已移到回收站 " + deleted.length + " 个；" + failed.length +
-          " 个失败：" + failed.map(function (f) { return f.path + "（" + f.error + "）"; }).join("；"), "err"));
-      } else {
-        $("banners").appendChild(banner("已把 " + deleted.length +
-          " 个重复 mod 移到回收站（上面的统计数字未更新，需要的话重新扫描一次）"));
-      }
+      showBanner(failed.length
+        ? "已移到回收站 " + deleted.length + " 个；" + failed.length +
+          " 个失败：" + failed.map(function (f) { return f.path + " (" + f.error + ")"; }).join("；")
+        : "已把 " + deleted.length +
+          " 个重复 mod 移到回收站 (上面的统计数字未更新, 需要的话重新扫描一次)",
+        failed.length ? "err" : "");
       refreshDeleteAll();
     }).catch(function (err) {
       state.deleting = false;
@@ -475,15 +475,14 @@
 
   function removeMember(g, m, btn) {
     var keep = state.keepByGroup[g.id] || "";
-    if (!keep) { showError("请先在组内选一份要保留的。"); return; }
-    if (keep === m.path) { showError("要删的正是组内标为「保留」的那一份。"); return; }
-    if (!state.job) { showError("扫描任务已失效，请重新扫描后再删。"); return; }
-    if (!window.confirm("把这个文件夹移到回收站？\n\n" + m.path + "\n\n它可以从回收站还原。")) return;
+    if (!keep) { showError("请先在组内选一份要保留的."); return; }
+    if (keep === m.path) { showError("要删的正是组内标为「保留」的那一份."); return; }
+    if (!state.resultJob) { showError("扫描任务已失效, 请重新扫描后再删."); return; }
+    if (!window.confirm("把这个文件夹移到回收站？\n\n" + m.path + "\n\n它可以从回收站还原.")) return;
     btn.disabled = true;
-    postJSON("/api/delete", { job_id: state.job, path: m.path, keep: keep }, 120000).then(function () {
+    postJSON("/api/delete", { job_id: state.resultJob, path: m.path, keep: keep }, 120000).then(function () {
       markDeleted(m.path);
-      clearBanners();
-      $("banners").appendChild(banner("已移到回收站：" + m.path + "（上面的统计数字未更新，需要的话重新扫描一次）"));
+      showBanner("已移到回收站：" + m.path + " (上面的统计数字未更新, 需要的话重新扫描一次)");
       refreshDeleteAll();
     }).catch(function (err) {
       btn.disabled = false;
@@ -491,26 +490,26 @@
     });
   }
 
-  function renderEmptyMods(list) {
-    var wrap = $("empty-wrap");
+  // 空 mod 与提示/警告两块面板结构相同：标题行 + 清单 (给了 listCls 才套一层列表)
+  function listPanel(wrapId, label, unit, list, listCls) {
+    var wrap = $(wrapId);
     wrap.textContent = "";
     if (!list.length) return;
     var panel = el("div", "panel");
-    panel.appendChild(el("div", "phase", "空 mod（natives/ 下一个文件都没有）：" + list.length + " 个"));
-    list.forEach(function (p) { panel.appendChild(el("div", "path", p)); });
+    panel.appendChild(el("div", "phase", label + "：" + list.length + " " + unit));
+    var box = listCls ? panel.appendChild(el("ul", listCls)) : panel;
+    list.forEach(function (item) {
+      box.appendChild(listCls ? el("li", null, item) : el("div", "path", item));
+    });
     wrap.appendChild(panel);
   }
 
+  function renderEmptyMods(list) {
+    listPanel("empty-wrap", "空 mod (natives/ 下一个文件都没有)", "个", list);
+  }
+
   function renderWarnings(list) {
-    var wrap = $("warn-wrap");
-    wrap.textContent = "";
-    if (!list.length) return;
-    var panel = el("div", "panel");
-    panel.appendChild(el("div", "phase", "提示 / 警告：" + list.length + " 条"));
-    var ul = el("ul", "warn-list");
-    list.forEach(function (w) { ul.appendChild(el("li", null, w)); });
-    panel.appendChild(ul);
-    wrap.appendChild(panel);
+    listPanel("warn-wrap", "提示 / 警告", "条", list, "warn-list");
   }
 
   // ---- 导出 ------------------------------------------------------------
@@ -551,7 +550,7 @@
       var keep = state.keepByGroup[g.id] || "";
       var kept = keep || (g.members[0] && g.members[0].path);
       g.members.forEach(function (m) {
-        // 以当前界面上的选择为准（默认选择是第一个成员）
+        // 以当前界面上的选择为准 (默认选择是第一个成员)
         var role = kept === m.path ? "保留" : "删除";
         if (state.deleted[m.path]) role = "已删除";
         rows.push([g.id, g.count, g.member_bytes, g.reclaimable_bytes, g.structure_sig,

@@ -23,7 +23,7 @@ def get_file_hash(filepath, algorithm='sha256'):
     hash_obj = hashlib.new(algorithm)
     
     with open(filepath, 'rb') as f:
-        # 分块读取，避免大文件占用过多内存
+        # 分块读取, 避免大文件占用过多内存
         chunk_size = 8192
         while chunk := f.read(chunk_size):
             hash_obj.update(chunk)

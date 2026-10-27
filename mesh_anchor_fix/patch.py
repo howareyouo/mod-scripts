@@ -12,7 +12,7 @@ Untouched:   local mats, weights, faces, UVs, colors, all other bytes.
 import sys, os
 import numpy as np
 
-# RE-Mesh-Editor 插件路径（只读）：修改此处或设置环境变量 RE_MESH_EDITOR_PATH
+# RE-Mesh-Editor 插件路径 (只读)：修改此处或设置环境变量 RE_MESH_EDITOR_PATH
 ADDON_DIR = os.environ.get('RE_MESH_EDITOR_PATH',
                            'F:/Backup/BlenderPortable/scripts/addons/RE-Mesh-Editor')
 sys.path.insert(0, ADDON_DIR)

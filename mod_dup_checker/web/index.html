@@ -8,15 +8,15 @@
 </head>
 <body>
 <h1>mod 重复检测</h1>
-<p class="hint">仅比较 <code>natives/</code> 下的文件，<code>modinfo.ini</code>、截图等不参与</p>
+<p class="hint">仅比较 <code>natives/</code> 下的文件, <code>modinfo.ini</code>、截图等不参与</p>
 
 <div class="panel" style="margin-top:16px">
-  <label for="roots">mod 集合目录（一行一个，会自动递归找「自身含 natives 子目录」的 mod）</label>
+  <label for="roots">mod 集合目录 (一行一个, 会自动递归找「自身含 natives 子目录」的 mod)</label>
   <textarea id="roots" spellcheck="false" placeholder="E:\Dedup\Ada Side Slit Cheongsam&#10;E:\Dedup\Ada Side Slit Cheongsam_"></textarea>
   <div class="row">
     <button id="btn-browse" hidden>选择目录…</button>
     <label>线程数 <select id="jobs"></select></label>
-    <span class="hint sub">机械硬盘建议把线程数调到 2；SSD 默认即可。</span>
+    <span class="hint sub">机械硬盘建议把线程数调到 2；SSD 默认即可.</span>
     <span class="grow"></span>
     <button id="btn-scan" class="primary">开始扫描</button>
     <button id="btn-cancel" disabled>取消</button>
@@ -45,7 +45,7 @@
 <footer>
   <button id="btn-json" disabled>导出 JSON</button>
   <button id="btn-csv" disabled>导出 CSV</button>
-  <span class="hint" id="foot-hint">扫描结束后可导出。</span>
+  <span class="hint" id="foot-hint">扫描结束后可导出.</span>
 </footer>
 
 <script src="/app.js"></script>

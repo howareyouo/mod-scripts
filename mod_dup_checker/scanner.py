@@ -1,4 +1,4 @@
-"""扫描任务：三级校验流程、结果组装、取消、单任务注册表。"""
+"""扫描任务：三级校验流程、结果组装、取消、单任务注册表."""
 
 from __future__ import annotations
 
@@ -11,12 +11,9 @@ import traceback
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
-
 from .cache import DigestCache
 from .config import CACHE_FILE, CACHE_JOURNAL, DEFAULT_JOBS, FULL_CHUNK
-from .discovery import discover_mods, list_natives_files
-from .errors import Cancelled
+from .discovery import Cancelled, Mod, discover_mods, list_natives_files
 from .paths import long_path
 from .progress import Progress
 from .signatures import (
@@ -27,26 +24,24 @@ from .signatures import (
 )
 
 FULL_DIGEST_SIZE = 32
-MAX_WARNINGS = 500          # 脏目录下警告可能上千条，超出部分只计数不再保存
+MAX_WARNINGS = 500          # 脏目录下警告可能上千条, 超出部分只计数不再保存
 
 log = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
-class Mod:
-    """一个待比较的 mod。字段在流水线各阶段逐步填上，用属性避免字典键手滑。"""
+def _regroup(groups, sigs_per_group):
+    """按签名重新分桶, 只保留仍有多个成员的组.
 
-    path: str
-    name: str
-    natives: str
-    root_index: int
-    rel_depth: int
-    index: int = -1
-    files: list = field(default_factory=list)
-    bytes: int = 0
-    struct: str = ""
-    sig: str = ""
-    partial: bool = False
+    ``sigs_per_group[i][j]`` 是第 i 组第 j 个成员的签名, None 表示这只 mod 本轮无效.
+    """
+    out = []
+    for group, sigs in zip(groups, sigs_per_group):
+        buckets = defaultdict(list)
+        for m, sig in zip(group, sigs):
+            if sig is not None:
+                buckets[sig].append(m)
+        out.extend(members for members in buckets.values() if len(members) > 1)
+    return out
 
 
 class ScanJob:
@@ -109,7 +104,7 @@ class ScanJob:
             self._run()
         except Cancelled:
             self.cancelled = True
-            self._warn("扫描已取消：以下结论可能不完整（未经内容全量校验的组按「疑似重复」处理）。")
+            self._warn("扫描已取消：以下结论可能不完整 (未经内容全量校验的组按「疑似重复」处理).")
         except Exception as exc:  # noqa: BLE001 - 用户目录任何异常都不能崩
             self.error = "扫描失败：%s" % exc
             self._warn(self.error)
@@ -137,19 +132,14 @@ class ScanJob:
         t = time.perf_counter()
         self.prog.start_phase("扫描结构", 0)
 
-        raw_mods, warns = discover_mods(self.roots, self.cancel_evt)
+        mods, warns = discover_mods(self.roots, self.cancel_evt)
         for w in warns:
             self._warn(w)
-        mods = [
-            Mod(path=d["path"], name=d["name"], natives=d["natives"],
-                root_index=d["root_index"], rel_depth=d["rel_depth"])
-            for d in raw_mods
-        ]
         self.mods_total = len(mods)
         self.prog.set_mods(0, len(mods))
 
         if not mods:
-            self._warn("未找到任何 mod：mod 根目录 = 自身含有 natives 子目录的目录。")
+            self._warn("未找到任何 mod：mod 根目录 = 自身含有 natives 子目录的目录.")
             self._sort_groups()
             return
 
@@ -185,10 +175,8 @@ class ScanJob:
         t2 = time.perf_counter()
         sample_groups, cached_groups = self._sample_stage(candidates)
         self.phase_times["sample"] = time.perf_counter() - t2
-        # 中间结论：取消时用得着；采样通过的只是「疑似重复」，靠缓存定论的已是全量级
-        self.groups = [self._make_group(g, "structure") for g in sample_groups]
-        self.groups += [self._make_group(g, "content") for g in cached_groups]
-        self._sort_groups()
+        # 中间结论：取消时用得着；采样通过的只是「疑似重复」, 靠缓存定论的已是全量级
+        self._set_groups(sample_groups, cached_groups, "structure")
 
         if not sample_groups:
             return
@@ -197,12 +185,10 @@ class ScanJob:
         t3 = time.perf_counter()
         content_groups = self._full_stage(sample_groups)
         self.phase_times["full"] = time.perf_counter() - t3
-        self.groups = [self._make_group(g, "content") for g in content_groups]
-        self.groups += [self._make_group(g, "content") for g in cached_groups]
-        self._sort_groups()
+        self._set_groups(content_groups, cached_groups, "content")
 
     def _list_natives(self, mods):
-        """第 0 步：并发枚举每个 mod 的 natives/，只读元数据。"""
+        """第 0 步：并发枚举每个 mod 的 natives/, 只读元数据."""
         executor = ThreadPoolExecutor(max_workers=self.jobs, thread_name_prefix="modscan")
         try:
             futures = [executor.submit(list_natives_files, m.natives, self.cancel_evt) for m in mods]
@@ -214,7 +200,7 @@ class ScanJob:
                 if problems:
                     m.partial = True
                     for problem in problems:
-                        self._warn("无法读取（%s）：%s" % (m.path, problem))
+                        self._warn("无法读取 (%s)：%s" % (m.path, problem))
                     with self.lock:
                         self.partial_mods.append(m.path)
                 self.prog.set_mods(i + 1, len(mods))
@@ -222,11 +208,11 @@ class ScanJob:
         finally:
             executor.shutdown(wait=True, cancel_futures=True)
 
-    # -- 第 2 / 3 级：同一套流程，只换单文件摘要算法 ----------------------
+    # -- 第 2 / 3 级：同一套流程, 只换单文件摘要算法 ----------------------
     def _verify_stage(self, groups, task_fn, digest_size, phase, order_by_size=False):
-        """对每组内的每个文件算摘要，再按「路径+大小+摘要」重新分桶。
+        """对每组内的每个文件算摘要, 再按「路径+大小+摘要」重新分桶.
 
-        返回仍然有多个成员的组；读不出来的 mod 直接踢出本组。
+        返回仍然有多个成员的组；读不出来的 mod 直接踢出本组.
         """
         tasks = []
         for gi, group in enumerate(groups):
@@ -234,7 +220,7 @@ class ScanJob:
                 for tup in m.files:
                     tasks.append((gi, m, tup))
         if order_by_size:
-            tasks.sort(key=lambda t: -t[2][1])   # 大文件先开工，IO 更饱满
+            tasks.sort(key=lambda t: -t[2][1])   # 大文件先开工, IO 更饱满
         self.prog.start_phase(phase, len(tasks))
 
         executor = ThreadPoolExecutor(max_workers=self.jobs, thread_name_prefix="verify")
@@ -244,47 +230,40 @@ class ScanJob:
             executor.shutdown(wait=True, cancel_futures=True)
 
         per_mod = defaultdict(list)
-        failed = set()
         for (_gi, m, _tup), digest in zip(tasks, digests):
-            if digest is None:
-                failed.add(m.index)
-            else:
+            if digest is not None:
                 per_mod[m.index].append(digest)
 
-        out = []
+        sigs_per_group = []
         for group in groups:
-            buckets = defaultdict(list)
+            sigs = []
             for m in group:
-                if m.index in failed or m.partial:
-                    continue
                 ds = per_mod.get(m.index, [])
-                if len(ds) != len(m.files):
-                    continue
-                m.sig = combine_mod_sig(digest_size, m.files, ds)
-                buckets[m.sig].append(m)
-            out.extend(members for members in buckets.values() if len(members) > 1)
-        return out
+                if m.partial or len(ds) != len(m.files):
+                    sigs.append(None)   # 这个 mod 本轮无效, 不参与分桶
+                else:
+                    sigs.append(combine_mod_sig(digest_size, m.files, ds))
+            sigs_per_group.append(sigs)
+        return _regroup(groups, sigs_per_group)
 
     def _sample_stage(self, candidates):
-        """第 2 级。返回 (仍需采样的组, 已经能按缓存全量摘要定论的组)。"""
+        """第 2 级.返回 (仍需采样的组, 已经能按缓存全量摘要定论的组)."""
         todo = []
-        resolved = []
+        ready = []
+        ready_sigs = []
         for group in candidates:
             sigs = [self._cached_sig(m) for m in group]
-            if any(sig is None for sig in sigs):
-                todo.append(group)
-                continue
-            buckets = defaultdict(list)
-            for m, sig in zip(group, sigs):
-                m.sig = sig
-                buckets[sig].append(m)
-            resolved.extend(members for members in buckets.values() if len(members) > 1)
+            if None in sigs:
+                todo.append(group)     # 整组全缓存才定论, 否则走采样
+            else:
+                ready.append(group)
+                ready_sigs.append(sigs)
 
         groups = self._verify_stage(todo, self._sample_task, SAMPLE_DIGEST_SIZE, "采样校验")
-        return groups, resolved
+        return groups, _regroup(ready, ready_sigs)
 
     def _cached_sig(self, mod):
-        """整只 mod 的全量摘要都能从缓存拼出来时返回签名，否则 None。"""
+        """整只 mod 的全量摘要都能从缓存拼出来时返回签名, 否则 None."""
         digests = []
         for _rel, size, path, mtime_ns, _nlink in mod.files:
             digest = self.cache.get(path, size, mtime_ns)
@@ -299,7 +278,7 @@ class ScanJob:
                                   "全量校验", order_by_size=True)
 
     def _fail_mod(self, mod, path, exc):
-        self._warn("无法读取文件，该 mod 不参与重复判定：%s（%s）" % (path, exc.strerror or exc))
+        self._warn("无法读取文件, 该 mod 不参与重复判定：%s (%s)" % (path, exc.strerror or exc))
         mod.partial = True
 
     def _sample_task(self, task):
@@ -363,8 +342,8 @@ class ScanJob:
 
     # -- 结果 ------------------------------------------------------------
     def _make_group(self, members, kind):
-        # 成员顺序即「默认保留」优先级：先看是第几个扫描目录扫到的（先填的赢），
-        # 再看相对该目录埋得多深（越上层越优先），最后才按路径字母序。
+        # 成员顺序即「默认保留」优先级：先看是第几个扫描目录扫到的 (先填的赢), 
+        # 再看相对该目录埋得多深 (越上层越优先), 最后才按路径字母序.
         members = sorted(members, key=lambda m: (m.root_index, m.rel_depth, m.path.lower()))
         member_bytes = members[0].bytes
         count = len(members)
@@ -385,6 +364,13 @@ class ScanJob:
                 for m in members
             ],
         }
+
+    def _set_groups(self, verified, cached, kind):
+        """组装结果并排序.cached 里的组已由全量缓存定论, 恒为 content."""
+        groups = [self._make_group(g, kind) for g in verified]
+        groups += [self._make_group(g, "content") for g in cached]
+        self.groups = groups
+        self._sort_groups()
 
     def _sort_groups(self):
         groups = sorted(
@@ -458,7 +444,7 @@ class ScanJob:
 
 
 class Registry:
-    """同一时刻只允许一个扫描任务。"""
+    """同一时刻只允许一个扫描任务."""
 
     def __init__(self):
         self._lock = threading.Lock()

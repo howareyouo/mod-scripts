@@ -2,7 +2,7 @@
 r"""
 tui.py — mesh_anchor_fix 的交互式终端 UI 组件
 
-提供路径输入（拖放自动确认）、文件列表选择、文字高亮等功能。
+提供路径输入 (拖放自动确认)、文件列表选择、文字高亮等功能.
 """
 
 import os
@@ -12,7 +12,7 @@ import sys
 if os.name == 'nt':
     os.system('')
 
-# 文字高亮颜色（ANSI）
+# 文字高亮颜色 (ANSI)
 CYAN = '\033[96m'
 END = '\033[0m'
 
@@ -111,7 +111,7 @@ def ask_path(prompt):
 
 
 def list_meshes(meshes_dir):
-    """列出目录下的所有 mesh 文件（按文件名排序）"""
+    """列出目录下的所有 mesh 文件 (按文件名排序)"""
     if not os.path.isdir(meshes_dir):
         return []
     files = []
@@ -123,8 +123,8 @@ def list_meshes(meshes_dir):
 
 
 def select_body_mesh(meshes_dir):
-    """选择目标身体 mesh：上下方向键高亮选择 / 输入数字 / 拖放路径。
-    无可用列表或终端不支持方向键时，回退为普通输入。"""
+    """选择目标身体 mesh：上下方向键高亮选择 / 输入数字 / 拖放路径.
+    无可用列表或终端不支持方向键时, 回退为普通输入."""
     files = list_meshes(meshes_dir)
     if not files:
         return ask_path(f"② 输入 「{hl('目标角色的身体 mesh')}」 路径并回车\n   (可输入编号或把文件拖进本窗口): ")

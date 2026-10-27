@@ -1,4 +1,4 @@
-"""命令行（无界面）模式：带实时进度行地打印分组结果。"""
+"""命令行 (无界面)模式：带实时进度行地打印分组结果."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from .scanner import ScanJob
 
 
 def setup_console():
-    """控制台编码兜底：能显示中文就保持原样，不能就切 UTF-8，绝不因为编码崩掉。"""
+    """控制台编码兜底：能显示中文就保持原样, 不能就切 UTF-8, 绝不因为编码崩掉."""
     for stream in (sys.stdout, sys.stderr):
         try:
             enc = (getattr(stream, "encoding", None) or "ascii")
@@ -35,6 +35,14 @@ def fmt_bytes(n):
     return "%.2f TiB" % n
 
 
+def _print_block(label, items, unit):
+    """统一的结果清单块：空行 + 「标题：N 单位」+ 每项缩进 4 空格."""
+    print("")
+    print("%s：%d %s" % (label, len(items), unit))
+    for item in items:
+        print("    %s" % item)
+
+
 def run_cli(paths, jobs):
     job = ScanJob("cli", paths, jobs)
     stop = threading.Event()
@@ -52,7 +60,7 @@ def run_cli(paths, jobs):
             sys.stdout.write("\r" + line)
             sys.stdout.flush()
             stop.wait(0.3)
-        # \x1b[K 抹掉整行剩余内容，不用猜上一行有多长
+        # \x1b[K 抹掉整行剩余内容, 不用猜上一行有多长
         sys.stdout.write("\r\x1b[K")
         sys.stdout.flush()
 
@@ -66,17 +74,17 @@ def run_cli(paths, jobs):
     stats = res["stats"]
     times = stats.get("phase_times_ms", {})
     print("=" * 72)
-    print("扫描完成：%d 个 mod，natives 文件 %d 个，总计 %s"
+    print("扫描完成：%d 个 mod, natives 文件 %d 个, 总计 %s"
           % (stats["mods"], stats["files"], fmt_bytes(stats["bytes"])))
     print("阶段耗时：结构 %sms / 采样 %sms / 全量 %sms / 总计 %dms"
           % (times.get("structure", 0), times.get("sample", 0),
              times.get("full", 0), stats["elapsed_ms"]))
-    print("实际读取：%s（采样 + 全量；另有 %d 个文件命中缓存不计入）"
+    print("实际读取：%s (采样 + 全量；另有 %d 个文件命中缓存不计入)"
           % (fmt_bytes(stats.get("bytes_read", 0)), stats.get("cache_hits", 0)))
-    print("重复结果：%d 组，%d 个 mod，可回收 %s"
+    print("重复结果：%d 组, %d 个 mod, 可回收 %s"
           % (len(res["groups"]), stats["dup_mods"], fmt_bytes(stats["reclaimable_bytes"])))
     if res["cancelled"]:
-        print("注意：扫描被取消，结论不完整。")
+        print("注意：扫描被取消, 结论不完整.")
     print("=" * 72)
 
     for g in res["groups"]:
@@ -90,22 +98,13 @@ def run_cli(paths, jobs):
                   % ("保留" if i == 0 else "候选", m["path"], m["files"], fmt_bytes(m["bytes"])))
 
     if res["empty_mods"]:
-        print("")
-        print("空 mod（natives/ 下没有任何文件）：%d 个" % len(res["empty_mods"]))
-        for p in res["empty_mods"]:
-            print("    %s" % p)
+        _print_block("空 mod (natives/ 下没有任何文件)", res["empty_mods"], "个")
 
     if res["partial_mods"]:
-        print("")
-        print("有读取问题的 mod（不参与重复判定）：%d 个" % len(res["partial_mods"]))
-        for p in res["partial_mods"]:
-            print("    %s" % p)
+        _print_block("有读取问题的 mod (不参与重复判定)", res["partial_mods"], "个")
 
     if res["warnings"]:
-        print("")
-        print("提示 / 警告：%d 条" % len(res["warnings"]))
-        for w in res["warnings"]:
-            print("    %s" % w)
+        _print_block("提示 / 警告", res["warnings"], "条")
 
     if res["stats"].get("cancelled"):
         return 130

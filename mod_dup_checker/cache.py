@@ -1,8 +1,9 @@
-"""全量哈希缓存：快照 JSON + 追加日志，读盘只在扫描线程里发生。
+"""全量哈希缓存：快照 JSON + 追加日志, 读盘只在扫描线程里发生.
 
-写入路径只做内存字典操作 + 日志追加，绝不重写整个快照；日志长到一定程度才压实
-（重写快照并清空日志）。加载时先读快照再重放日志，等于启动即压实。
-失败一律静默降级：缓存坏了只是下次重算，不能让扫描挂掉。
+写入路径只做内存字典操作 + 日志追加, 绝不重写整个快照；日志长到一定程度才压实
+ (重写快照并清空日志).加载时先读快照、再把日志重放进内存, 日志文件留到下一次
+压实才合并, 所以启动后第一条 put 触发的时间到了就会顺手压实一次.
+失败一律静默降级：缓存坏了只是下次重算, 不能让扫描挂掉.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from .config import CACHE_FLUSH_INTERVAL, CACHE_VERSION
 
 # 日志里攒够这么多行就落盘一次
 JOURNAL_BATCH = 256
-# 日志追加行数超过「快照条目数」的这么多倍就压实一次，避免日志无限长
+# 日志追加行数超过「快照条目数」的这么多倍就压实一次, 避免日志无限长
 COMPACT_RATIO = 2
 COMPACT_MIN_LINES = 4096
 # 压实前先剔除已经不存在的老条目；条目数超过这个量才做全量探测
@@ -46,7 +47,7 @@ class DigestCache:
 
     # -- 读 --------------------------------------------------------------
     def load(self):
-        """读快照 + 重放日志。只在扫描线程里调一次。"""
+        """读快照 + 重放日志.只在扫描线程里调一次."""
         data = self._load_snapshot()
         appended = self._replay_journal(data)
         with self._lock:
@@ -94,7 +95,7 @@ class DigestCache:
     def put(self, abspath, size, mtime_ns, digest):
         now = time.monotonic()
         with self._lock:
-            if not self._loaded:                  # 没走 load() 的调用方（测试等）直接可用
+            if not self._loaded:                  # 没走 load() 的调用方 (测试等)直接可用
                 self._loaded = True
             self._data[abspath] = {"size": size, "mtime_ns": mtime_ns, "blake2b": digest}
             self._pending.append([abspath, size, mtime_ns, digest])
@@ -103,7 +104,7 @@ class DigestCache:
             self.flush()
 
     def flush(self, force=False, compact=False):
-        """把待写日志落盘；需要时压实成快照。多个线程同时调用是安全的。"""
+        """把待写日志落盘；需要时压实成快照.多个线程同时调用是安全的."""
         with self._flush_lock:
             with self._lock:
                 lines, self._pending = self._pending, []
@@ -135,7 +136,7 @@ class DigestCache:
                     self._appended += len(lines)
             if snapshot is not None:
                 self._write_snapshot(snapshot)
-                # 快照已包含全部日志内容，可以清空日志
+                # 快照已包含全部日志内容, 可以清空日志
                 try:
                     if os.path.exists(self.journal_path):
                         os.remove(self.journal_path)
@@ -145,7 +146,7 @@ class DigestCache:
                     self._appended = 0
 
     def _prune(self, data):
-        """剔除文件已经不在的条目，顺手把缓存控制在合理规模。"""
+        """剔除文件已经不在的条目, 顺手把缓存控制在合理规模."""
         alive = {}
         for key, val in data.items():
             try:

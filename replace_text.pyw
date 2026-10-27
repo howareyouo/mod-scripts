@@ -11,7 +11,7 @@ CURRENT_DIR = CURRENT_PATH.parent
 # 目标文件夹：执行时会对该文件夹下所有匹配扩展名的文件进行替换
 TARGET_DIR = r"E:\RE4 Mods\Ada 1\Ada Nun Collection___"
 
-# 要处理的文件扩展名（小写，含点）
+# 要处理的文件扩展名 (小写, 含点)
 EXTENSIONS = (
     ".ini",
 )
@@ -44,13 +44,13 @@ def show_message(title, message):
 
 def parse_list_field(text):
     """Parse a comma-separated text field into a tuple of non-empty items."""
-    items = [item.strip() for item in text.replace("，", ",").split(",")]
+    items = [item.strip() for item in text.replace(", ", ",").split(",")]
     return tuple(item for item in items if item)
 
 def parse_replacements(text):
     """Parse the rules textarea into (pattern, replacement) pairs.
 
-    每行一条规则, 格式为 "pattern => replacement", 缺少 " => " 时替换文本视为空。
+    每行一条规则, 格式为 "pattern => replacement", 缺少 " => " 时替换文本视为空.
     """
     rules = []
     for line in text.splitlines():
@@ -67,7 +67,7 @@ def parse_replacements(text):
     return tuple(rules)
 
 class QueueWriter:
-    """把工作线程里 print 的输出转发到队列, 由 GUI 轮询显示到日志区。"""
+    """把工作线程里 print 的输出转发到队列, 由 GUI 轮询显示到日志区."""
     def __init__(self, log_queue):
         self.log_queue = log_queue
 
@@ -103,7 +103,7 @@ DARK_STYLES = {
 }
 
 def apply_dark_theme(widget):
-    """递归地给 widget 及其子控件应用暗色样式 (日志界面在运行时才创建, 需要再次调用)。"""
+    """递归地给 widget 及其子控件应用暗色样式 (日志界面在运行时才创建, 需要再次调用)."""
     opts = DARK_STYLES.get(widget.winfo_class())
     if opts:
         try:
@@ -196,7 +196,7 @@ def launch_gui():
             while True:
                 item = log_queue.get_nowait()
                 if item is None:
-                    ui["status_var"].set("完成, 可以关闭窗口。")
+                    ui["status_var"].set("完成, 可以关闭窗口.")
                     root.protocol("WM_DELETE_WINDOW", root.destroy)
                     ui["close_btn"].config(state="normal")
                     return
@@ -208,7 +208,7 @@ def launch_gui():
         root.after(100, poll_log)
 
     def on_close_while_running():
-        messagebox.showinfo("提示", "正在运行, 请等待完成。", parent=root)
+        messagebox.showinfo("提示", "正在运行, 请等待完成.", parent=root)
 
     def on_start():
         directory = dir_var.get().strip()
@@ -217,11 +217,11 @@ def launch_gui():
             return
         extensions = parse_list_field(ext_var.get())
         if not extensions:
-            messagebox.showerror("错误", "请至少填写一个文件扩展名。", parent=root)
+            messagebox.showerror("错误", "请至少填写一个文件扩展名.", parent=root)
             return
         rules = parse_replacements(rules_text.get("1.0", "end"))
         if not rules:
-            messagebox.showerror("错误", "请至少填写一条替换规则。", parent=root)
+            messagebox.showerror("错误", "请至少填写一条替换规则.", parent=root)
             return
         # 文件夹名称替换为可选功能, 留空则不改名
         folder_rules = parse_replacements(folder_rules_text.get("1.0", "end"))
@@ -271,7 +271,7 @@ def launch_gui():
     return True if started[0] else None
 
 def rename_subdirs(target_dir, rules, dry_run):
-    """对 target_dir 下的直接子目录名应用正则替换并重命名 (不递归)。"""
+    """对 target_dir 下的直接子目录名应用正则替换并重命名 (不递归)."""
     compiled = [(re.compile(p), r) for p, r in rules]
     renamed = total_hits = 0
     try:
@@ -309,11 +309,11 @@ def rename_subdirs(target_dir, rules, dry_run):
                 continue
         renamed += 1
 
-    mode = "预览（未改名）" if dry_run else "已改名"
+    mode = "预览 (未改名)" if dry_run else "已改名"
     print(f"文件夹: 扫描直接子目录, {mode} {renamed} 个, 共 {total_hits} 处替换")
 
 def find_excluded_files(target_dir, extensions):
-    """找出需要排除的主 mod ini, 返回文件路径集合。
+    """找出需要排除的主 mod ini, 返回文件路径集合.
 
     1. 文件名 (不含扩展名) 与所在文件夹同名的 ini (mod 名默认使用文件夹名称)
     2. 其他 ini 中 addonfor= 引用的同名 ini (值可逗号分隔多个)
@@ -352,9 +352,9 @@ def find_excluded_files(target_dir, extensions):
     return excluded
 
 def run_replacements(target_dir=TARGET_DIR, extensions=EXTENSIONS, rules=REPLACEMENTS, dry_run=DRY_RUN):
-    """遍历 target_dir, 对匹配扩展名的文件依次应用所有正则替换。
+    """遍历 target_dir, 对匹配扩展名的文件依次应用所有正则替换.
 
-    主 mod ini (与文件夹同名, 或被 addonfor= 引用) 不做替换。
+    主 mod ini (与文件夹同名, 或被 addonfor= 引用) 不做替换.
     """
     if not os.path.isdir(target_dir):
         print(f"错误：目标文件夹不存在: {target_dir}")
@@ -383,7 +383,7 @@ def run_replacements(target_dir=TARGET_DIR, extensions=EXTENSIONS, rules=REPLACE
                 with open(file_path, "r", encoding="utf-8") as f:
                     original = f.read()
             except (UnicodeDecodeError, OSError) as e:
-                print(f"跳过（无法读取）: {file_path} ({e})")
+                print(f"跳过 (无法读取): {file_path} ({e})")
                 continue
 
             text = original
@@ -391,8 +391,8 @@ def run_replacements(target_dir=TARGET_DIR, extensions=EXTENSIONS, rules=REPLACE
             for regex, replacement in compiled:
                 text, n = regex.subn(replacement, text)
                 count += n
-            # 兜底: 某条规则把换行全部吃掉时 (pattern 匹配 \n 且替换为空), 整个文件会挤成一行。
-            # 原文件含换行而结果一个不剩时, 至少补回一个。
+            # 兜底: 某条规则把换行全部吃掉时 (pattern 匹配 \n 且替换为空), 整个文件会挤成一行.
+            # 原文件含换行而结果一个不剩时, 至少补回一个.
             if "\n" in original and "\n" not in text:
                 print(f"警告: 替换后所有换行丢失, 已补回一个换行: {file_path}")
                 text += "\n"
@@ -412,7 +412,7 @@ def run_replacements(target_dir=TARGET_DIR, extensions=EXTENSIONS, rules=REPLACE
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(text)
 
-    mode = "预览（未写入）" if dry_run else "已替换"
+    mode = "预览 (未写入)" if dry_run else "已替换"
     print(f"\n完成: 扫描 {processed} 个文件, {mode} {changed} 个文件, 共 {total_hits} 处替换")
 
 if __name__ == "__main__":

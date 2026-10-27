@@ -2,25 +2,25 @@
 r"""
 fix_mesh_anchor.py — RE Engine mesh 跨角色移植绑定重锚定工具
 
-用途：把一个角色 A 的发型/部件 mesh 移植到角色 B 后，Blender 里显示错位
-（游戏内正常）的问题一次性修好：将 mesh 的绑定坐标系刚体重锚定到
-角色 B 身体 mesh 的指定骨骼（默认 Head）。
+用途：把一个角色 A 的发型/部件 mesh 移植到角色 B 后, Blender 里显示错位
+ (游戏内正常)的问题一次性修好：将 mesh 的绑定坐标系刚体重锚定到
+角色 B 身体 mesh 的指定骨骼 (默认 Head).
 
 原理：
   A = I_mesh(anchor) @ W_body(anchor)   (row-vector 约定, p' = p @ M)
   顶点/法线/切线 v' = v @ A
   world:  W' = W @ A        inverse: I' = A^-1 @ I
-  骨骼 AABB 随 A 刚体变换；UV/权重/面/顶点色/local 矩阵不动。
-  游戏不变性（逐骨骼严格成立）：I'(A v) = I v  → 蒙皮输出逐比特不变。
+  骨骼 AABB 随 A 刚体变换；UV/权重/面/顶点色/local 矩阵不动.
+  游戏不变性 (逐骨骼严格成立)：I'(A v) = I v  → 蒙皮输出逐比特不变.
 
 用法：
   python fix_mesh_anchor.py --mesh <要修的.mesh.xxx> --body <参照角色身体.mesh.xxx>
                             [--bone Head] [--out <输出路径>] [--no-backup]
 
-  --mesh  待修复 mesh（移植品），原地覆盖（除非 --out）
-  --body  目标角色的身体/头部 mesh（其骨架含锚定骨骼，提供正确的绑定空间）
-  --bone  锚定骨骼名，默认 Head
-  --out   输出到别处（默认原地覆盖并自动生成 .bak 备份）
+  --mesh  待修复 mesh (移植品), 原地覆盖 (除非 --out)
+  --body  目标角色的身体/头部 mesh (其骨架含锚定骨骼, 提供正确的绑定空间)
+  --bone  锚定骨骼名, 默认 Head
+  --out   输出到别处 (默认原地覆盖并自动生成 .bak 备份)
 
 依赖：numpy；同目录或 --addon 下需有 RE-Mesh-Editor 的 modules/
       交互 UI 组件见同目录 tui.py
@@ -35,8 +35,8 @@ import numpy as np
 
 from tui import hl, clean_path, ask_path, select_body_mesh
 
-# ---------- RE Mesh Editor 模块定位（只读，不修改插件） ----------
-# 修改此处（或设置环境变量 RE_MESH_EDITOR_PATH）即可切换插件路径
+# ---------- RE Mesh Editor 模块定位 (只读, 不修改插件) ----------
+# 修改此处 (或设置环境变量 RE_MESH_EDITOR_PATH)即可切换插件路径
 ADDON_DIR = os.environ.get('RE_MESH_EDITOR_PATH',
                            'F:/Backup/BlenderPortable/scripts/addons/RE-Mesh-Editor')
 
@@ -50,7 +50,7 @@ def _find_addon(explicit=None):
     for c in cands:
         if os.path.isdir(os.path.join(c, 'modules', 'mesh')):
             return c
-    raise SystemExit("找不到 RE-Mesh-Editor 的 modules/，请用 --addon 指定插件目录")
+    raise SystemExit("找不到 RE-Mesh-Editor 的 modules/, 请用 --addon 指定插件目录")
 
 
 def load_mesh(path, addon):
@@ -62,7 +62,7 @@ def load_mesh(path, addon):
         m = REMesh()
         m.read(f, VERSION_RE4)
     if m.skeletonHeader is None or m.meshBufferHeader is None:
-        raise SystemExit(f"{path}: 缺少骨架或网格缓冲，不是可处理的 mesh 文件")
+        raise SystemExit(f"{path}: 缺少骨架或网格缓冲, 不是可处理的 mesh 文件")
     sk = m.skeletonHeader
     names = [m.rawNameList[m.boneNameRemapList[i]] for i in range(sk.boneCount)]
     W = np.array([np.asarray(x.matrix, dtype=np.float32).reshape(4, 4) for x in sk.worldMatList])
@@ -80,7 +80,7 @@ def run(args):
     mb, nb, Wb, _ = load_mesh(args.body, addon)
 
     if args.bone not in nd:
-        raise SystemExit(f"mesh 骨架中不存在骨骼 '{args.bone}'（可用骨骼前几个: {nd[:8]}...）")
+        raise SystemExit(f"mesh 骨架中不存在骨骼 '{args.bone}' (可用骨骼前几个: {nd[:8]}...)")
     if args.bone not in nb:
         raise SystemExit(f"参照身体骨架中不存在骨骼 '{args.bone}'")
 
@@ -89,7 +89,7 @@ def run(args):
     Rr, tr = A_row[:3, :3], A_row[3, :3]
     orth = np.abs(Rr @ Rr.T - np.eye(3)).max()
     if orth > 1e-3:
-        raise SystemExit(f"锚定变换旋转分量不正交（{orth:.4f}），骨骼数据异常，中止")
+        raise SystemExit(f"锚定变换旋转分量不正交 ({orth:.4f}), 骨骼数据异常, 中止")
     A_row_inv = np.eye(4)
     A_row_inv[:3, :3] = Rr.T
     A_row_inv[3, :3] = -tr @ Rr.T
@@ -98,7 +98,7 @@ def run(args):
     shift = np.linalg.norm(t)
     print(f"    平移量 {np.linalg.norm(t)*100:.2f} cm, 旋转 {np.degrees(np.arccos(np.clip((np.trace(R)-1)/2,-1,1))):.2f}°")
     if shift < 1e-4 and orth < 1e-4:
-        print("    两个绑定坐标系已一致，无需修复。")
+        print("    两个绑定坐标系已一致, 无需修复.")
         return
 
     # Head 校验：补丁后 mesh 锚定骨骼 == 参照身体锚定骨骼
@@ -108,7 +108,7 @@ def run(args):
     print("[3/6] 定位数据块")
     raw = bytearray(open(args.mesh, 'rb').read())
     if len(raw) != md.fileHeader.fileSize:
-        raise SystemExit("文件大小与 header 不符，文件可能已损坏，中止")
+        raise SystemExit("文件大小与 header 不符, 文件可能已损坏, 中止")
     fh, mmb = md.fileHeader, md.meshBufferHeader
     vbo = mmb.vertexBufferOffset  # 顶点缓冲绝对基址
     sk = md.skeletonHeader
@@ -174,7 +174,7 @@ def run(args):
         aabb_abs = fh.aabbOffset + 16
         raw[aabb_abs:aabb_abs + aabb.count * 32] = out.tobytes()
 
-    print("[5/6] 校验（蒙皮不变性抽样）")
+    print("[5/6] 校验 (蒙皮不变性抽样)")
     I_after = np.frombuffer(bytes(raw[inverse_abs:inverse_abs + bc * 64]), '<f4').reshape(bc, 4, 4)
     P_after = np.frombuffer(bytes(raw[pos_abs:pos_abs + n_verts * pos_stride]), '<f4').reshape(n_verts, 3)
     rng = np.random.default_rng(0)
@@ -197,10 +197,10 @@ def run(args):
                     s2 += w4[vi, k] * (h2 @ I_after[idx4[vi, k]])
             err = max(err, np.abs(s1 - s2).max())
         if err > 1e-3:
-            raise SystemExit(f"蒙皮不变性校验失败（误差 {err}），已中止，不写出文件")
+            raise SystemExit(f"蒙皮不变性校验失败 (误差 {err}), 已中止, 不写出文件")
         print(f"    蒙皮不变性: 最大误差 {err:.2e} (要求 < 1e-3)  ✓")
     if not np.isfinite(P_after).all():
-        raise SystemExit("顶点出现 NaN，中止")
+        raise SystemExit("顶点出现 NaN, 中止")
     print(f"    新顶点范围: {P_after.min(0).round(3)} ~ {P_after.max(0).round(3)}")
 
     print("[6/6] 写出")
@@ -211,7 +211,7 @@ def run(args):
             shutil.copy2(args.mesh, bak)
             print(f"    备份: {bak}")
         else:
-            print(f"    备份已存在，保留: {bak}")
+            print(f"    备份已存在, 保留: {bak}")
     with open(out_path, 'wb') as f:
         f.write(bytes(raw))
     print(f"完成: {out_path} ({len(raw)} 字节)")
@@ -219,11 +219,11 @@ def run(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description='RE Engine mesh 绑定重锚定修复（不带参数运行 = 交互模式）')
+        description='RE Engine mesh 绑定重锚定修复 (不带参数运行 = 交互模式)')
     ap.add_argument('--mesh', default=None, help='待修复的 mesh 文件')
     ap.add_argument('--body', default=None, help='参照角色的身体 mesh 文件')
-    ap.add_argument('--bone', default=None, help='锚定骨骼名（默认 Head）')
-    ap.add_argument('--out', default=None, help='输出路径（默认原地覆盖）')
+    ap.add_argument('--bone', default=None, help='锚定骨骼名 (默认 Head)')
+    ap.add_argument('--out', default=None, help='输出路径 (默认原地覆盖)')
     ap.add_argument('--no-backup', action='store_true', help='不生成 .bak 备份')
     ap.add_argument('--addon', default=None, help='RE-Mesh-Editor 插件目录')
     args, unknown = ap.parse_known_args()
