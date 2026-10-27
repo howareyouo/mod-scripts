@@ -1,0 +1,83 @@
+:root {
+  --bg: #14161a; --panel: #1c1f26; --line: #2b303b; --fg: #dde1e9;
+  --dim: #9aa3b2; --accent: #4f9cf9; --ok: #3fbf7f; --warn: #f0b400; --bad: #f0596b;
+  --sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+          "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+  font-family: var(--sans);
+  font-size: 15px; line-height: 1.7; letter-spacing: .01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+/* Windows 的 ClearType 次像素渲染会让深底上的浅色字显得锐、毛边明显。给文本容器建一个
+   合成层后浏览器会退回灰度抗锯齿，观感明显变柔（代价是略微发虚）。要更柔就取消下一行注释。 */
+/* body { transform: translateZ(0); } */
+h1 { font-size: 21px; font-weight: 600; letter-spacing: .02em; margin: 0 0 6px; }
+code {
+  background: #262b34; padding: 1px 5px; border-radius: 4px;
+  font-family: var(--mono); font-size: 13px; letter-spacing: 0;
+}
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px;
+}
+.hint { color: var(--dim); margin: 0; font-size: 13.5px; }
+textarea {
+  width: 100%; min-height: 108px; resize: vertical; padding: 10px 12px;
+  background: #12151a; color: var(--fg); border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.grow { flex: 1; }
+button {
+  background: #262b34; color: var(--fg); border: 1px solid var(--line);
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; font-size: 13.5px;
+}
+button:hover:not(:disabled) { border-color: #3d4655; background: #2d333e; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #08111f; font-weight: 600; }
+button.primary:hover:not(:disabled) { background: #6aabff; border-color: #6aabff; }
+button.small { padding: 3px 9px; font-size: 13px; }
+label { color: var(--dim); font-size: 13.5px; }
+select, input[type=number] {
+  background: #12151a; color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; font-family: inherit; font-size: 13.5px;
+}
+.bar { height: 8px; background: #12151a; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: linear-gradient(90deg, #4f9cf9, #62d0ff); transition: width .25s ease; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 20px; margin-top: 12px; }
+.kv div { font-size: 13.5px; color: var(--dim); }
+.kv b { color: var(--fg); font-weight: 600; }
+.path {
+  font-family: var(--mono); font-size: 13px; line-height: 1.65; letter-spacing: 0;
+  color: #b3bccb; word-break: break-all;
+}
+.phase { font-size: 15.5px; font-weight: 600; margin-bottom: 10px; }
+.group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
+.group-head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; }
+.group-no { font-weight: 600; font-size: 15px; }
+.tag { font-size: 13px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--line); color: var(--dim); letter-spacing: 0; }
+.tag.reclaim { color: var(--ok); border-color: #23543c; background: #16261f; }
+.tag.sig { font-family: var(--mono); }
+.member { padding: 10px 16px; border-top: 1px solid #232833; display: flex; gap: 12px; align-items: center; }
+.member:first-child { border-top: none; }
+.member.keep { background: #16221b; }
+.member .meta { color: var(--dim); font-size: 13px; white-space: nowrap; }
+.badge { font-size: 13px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; letter-spacing: 0; }
+.badge.keep { background: #1d4531; color: #7fe0a8; }
+.badge.del { background: #3a1f24; color: #f2a1ac; }
+.notice {
+  border-left: 3px solid var(--warn); background: #2a2313; color: #f4d58a;
+  padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 13.5px;
+}
+.err { border-left-color: var(--bad); background: #2c171b; color: #f6b0b9; }
+.warn-list { margin: 8px 0 0; padding-left: 20px; color: #e3c37a; font-size: 13.5px; word-break: break-all; }
+footer { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 40px; }
+.empty { color: var(--dim); text-align: center; padding: 24px 0; }
+.mono { font-family: var(--mono); letter-spacing: 0; }
