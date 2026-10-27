@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import msvcrt
 from pathlib import Path
 
 def find_dir_by_length(folder, length):
@@ -77,19 +78,39 @@ def get_editor_choice():
         ("VSCode", "D:/VSCode/", 10),
         ("Trae", "D:/Trae", None),
     ]
-    n = len(editors)
-    print("Select editor to patch:")
-    for i, (name, path, _) in enumerate(editors, start=1):
-        print(f"  {i}. {name} \t({path})")
 
+    def render(idx):
+        for i, (name, path, _) in enumerate(editors):
+            if i == idx:
+                print(f"\x1b[96m > {name} \t({path})\x1b[0m")
+            else:
+                print(f"   {name} \t({path})")
+
+    os.system('')  # enable ANSI escape sequences on Windows console
+    idx = 0
+    print("Select editor to patch (Up/Down + Enter):")
+    render(idx)
     while True:
-        c = input(f"Option (1-{n}): ").strip()
-        if c.isdigit():
-            idx = int(c)
-            if 1 <= idx <= n:
-                name, path, length = editors[idx - 1]
-                return name, path if length is None else path + find_dir_by_length(path, length)
-        print(f"Invalid option: {c}, please try again.")
+        key = msvcrt.getwch()
+        if key in ('\x00', '\xe0'):
+            key = msvcrt.getwch()
+            if key == 'H':
+                idx = (idx - 1) % len(editors)
+            elif key == 'P':
+                idx = (idx + 1) % len(editors)
+            else:
+                continue
+        elif key == '\r':
+            break
+        elif key == '\x03':
+            raise KeyboardInterrupt
+        else:
+            continue
+        print(f"\x1b[{len(editors)}A\x1b[J", end="")
+        render(idx)
+
+    name, path, length = editors[idx]
+    return name, path if length is None else path + find_dir_by_length(path, length)
 
 if __name__ == '__main__':
     name, path = get_editor_choice()
